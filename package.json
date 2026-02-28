@@ -18,6 +18,8 @@
     "redis:up": "docker compose -f infra/docker-compose.yml up -d redis",
     "redis:down": "docker compose -f infra/docker-compose.yml down",
     "test:integration": "node tests/integration.mjs",
-    "workflow:docker-loop": "bash scripts/agent-docker-loop.sh"
+    "workflow:docker-loop": "bash scripts/agent-docker-loop.sh",
+    "test:smoke": "REQUIRE_PROVIDER_SUCCESS=1 node tests/integration.mjs",
+    "test:smoke:loop": "bash scripts/smoke-loop.sh"
   }
 }

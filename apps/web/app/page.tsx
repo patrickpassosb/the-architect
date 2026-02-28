@@ -7,27 +7,34 @@ import {
   type Mode,
   type Source
 } from "@the-architect/shared-types";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { MessageSquare, LayoutDashboard, FileText, Settings, BotMessageSquare } from "lucide-react";
 import { ApiError, createSession, getArtifact, getArtifacts, sendMessage } from "@/lib/api";
 import { useVoiceTranscript } from "@/hooks/useVoiceTranscript";
 
 const DEFAULT_MODE: Mode = "architect";
-
-const sidebarGroups = [
-  {
-    label: "Favorites",
-    items: ["Performance Budget", "Accessibility Audit", "System Architecture", "API Documents"]
-  },
-  {
-    label: "Coding and Data",
-    items: ["Meeting Notes", "Database Schema", "Competitor Analysis", "Release Optimization"]
-  },
-  {
-    label: "Design and Product",
-    items: ["Landing Page Copy", "Mockup Generation", "Logo Concepts"]
-  }
+const sidebarItems = [
+  { name: "Chat", icon: MessageSquare },
+  { name: "Sessions", icon: LayoutDashboard },
+  { name: "Artifacts", icon: FileText },
+  { name: "Prompts", icon: BotMessageSquare },
+  { name: "Settings", icon: Settings },
 ] as const;
+
+type ThreadMessage =
+  | {
+    id: string;
+    role: "user";
+    source: Source;
+    content: string;
+  }
+  | {
+    id: string;
+    role: "assistant";
+    source: Source;
+    content: AssistantResponse;
+  };
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -65,9 +72,14 @@ function formatSessionId(id: string | null): string {
   return `${id.slice(0, 8)}...${id.slice(-8)}`;
 }
 
+function createMessageId(prefix: "user" | "assistant"): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export default function HomePage() {
   const voice = useVoiceTranscript();
   const clearVoiceTranscript = voice.clearTranscript;
+  const threadBottomRef = useRef<HTMLDivElement | null>(null);
 
   const [mode, setMode] = useState<Mode>(DEFAULT_MODE);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -78,8 +90,7 @@ export default function HomePage() {
   const [isSending, setIsSending] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
 
-  const [assistant, setAssistant] = useState<AssistantResponse | null>(null);
-  const [lastSource, setLastSource] = useState<Source | null>(null);
+  const [thread, setThread] = useState<ThreadMessage[]>([]);
 
   const [artifacts, setArtifacts] = useState<ArtifactListItem[]>([]);
   const [artifactsLoading, setArtifactsLoading] = useState(false);
@@ -97,7 +108,7 @@ export default function HomePage() {
       setSessionId(response.id);
       setArtifacts([]);
       setSelectedArtifact(null);
-      setAssistant(null);
+      setThread([]);
       setRequestError(null);
       clearVoiceTranscript();
     } catch (error) {
@@ -133,6 +144,10 @@ export default function HomePage() {
     void loadArtifacts(sessionId);
   }, [loadArtifacts, sessionId]);
 
+  useEffect(() => {
+    threadBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [thread, isSending]);
+
   const send = useCallback(
     async (source: Source, rawContent: string) => {
       if (!sessionId) {
@@ -147,11 +162,27 @@ export default function HomePage() {
 
       setIsSending(true);
       setRequestError(null);
+      setThread((current) => [
+        ...current,
+        {
+          id: createMessageId("user"),
+          role: "user",
+          source,
+          content
+        }
+      ]);
 
       try {
         const response = await sendMessage(sessionId, { content, source });
-        setAssistant(response.assistant);
-        setLastSource(source);
+        setThread((current) => [
+          ...current,
+          {
+            id: createMessageId("assistant"),
+            role: "assistant",
+            source,
+            content: response.assistant
+          }
+        ]);
 
         if (source === "text") {
           setDraftMessage("");
@@ -193,51 +224,43 @@ export default function HomePage() {
   }, [selectedArtifact]);
 
   return (
-    <main className="app-shell">
-      <div className="bg-glow bg-glow-blue" aria-hidden="true" />
-      <div className="bg-glow bg-glow-violet" aria-hidden="true" />
-
-      <section className="workspace">
-        <aside className="sidebar panel">
-          <div className="brand">
-            <p className="brand-kicker">Workspace</p>
-            <h1>The Architect</h1>
+    <main className="chat-app">
+      <section className="workspace-shell">
+        <aside className="sidebar">
+          <div className="sidebar-brand">
+            <h2 className="brand-title">
+              <span className="brand-icon">⬡</span>
+              The Architect
+            </h2>
+            <p className="kicker">AI Co-founder Workspace</p>
           </div>
 
-          <label className="search-wrap" htmlFor="sidebar-search">
-            <span className="sr-only">Search workspace</span>
-            <input id="sidebar-search" type="text" placeholder="Search..." readOnly value="" />
-          </label>
+          <nav className="sidebar-nav" aria-label="Primary">
+            {sidebarItems.map((item) => {
+              const isActive = item.name === "Chat";
+              const Icon = item.icon;
+              return (
+                <button key={item.name} type="button" className={`sidebar-link ${isActive ? "sidebar-link-active" : ""}`} aria-current={isActive ? "page" : undefined}>
+                  <Icon className="sidebar-icon" size={18} />
+                  {item.name}
+                </button>
+              );
+            })}
+          </nav>
 
-          <div className="sidebar-scroll">
-            {sidebarGroups.map((group) => (
-              <section key={group.label} className="nav-group">
-                <h2>{group.label}</h2>
-                <ul>
-                  {group.items.map((item) => (
-                    <li key={item}>
-                      <button type="button" className="nav-item">
-                        {item}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </div>
-
-          <div className="profile-strip">
+          <div className="sidebar-footer">
             <span className="avatar">A</span>
             <p>Architect Session</p>
           </div>
         </aside>
 
-        <section className="main-area">
-          <header className="topbar panel">
-            <div>
-              <p className="kicker">AI Build Assistant</p>
-              <h2>Focus, Decide, Ship</h2>
+        <section className="chat-shell">
+          <header className="chat-header">
+            <div className="heading-group">
+              <h1>Focus, Decide, Ship</h1>
+              <p className="muted">Chat-first workspace for architecture and execution.</p>
             </div>
+
             <div className="topbar-actions">
               <label className="field compact" htmlFor="mode-select">
                 Mode
@@ -277,40 +300,91 @@ export default function HomePage() {
             </section>
           )}
 
-          <section className="chat-pane panel">
-            <article className="bubble assistant-bubble">
-              <h3>Assistant Response {lastSource ? <span>({lastSource})</span> : null}</h3>
-              {!assistant ? (
-                <p className="muted">No response yet. Send voice or text to receive a structured output.</p>
-              ) : (
-                <div className="assistant-grid">
-                  <section>
-                    <h4>Summary</h4>
-                    <p>{assistant.summary}</p>
-                  </section>
-                  <section>
-                    <h4>Decision</h4>
-                    <p>{assistant.decision}</p>
-                  </section>
-                  <section>
-                    <h4>Next Actions</h4>
-                    {assistant.next_actions.length === 0 ? (
-                      <p className="muted">No next actions returned.</p>
-                    ) : (
-                      <ol>
-                        {assistant.next_actions.map((item, index) => (
-                          <li key={`${item}-${index}`}>{item}</li>
-                        ))}
-                      </ol>
-                    )}
-                  </section>
-                </div>
+          <section className="conversation panel">
+            <div className="message-stack">
+              {thread.length === 0 && (
+                <article className="message message-assistant message-empty">
+                  <p className="message-meta">Assistant</p>
+                  <p className="muted">No response yet. Send voice or text to start the conversation.</p>
+                </article>
               )}
-            </article>
 
-            <article className="bubble voice-panel">
-              <h3>Voice Input</h3>
-              <p className="muted">Record, review transcript, and send as <code>source=voice</code>.</p>
+              {thread.map((message) => {
+                if (message.role === "user") {
+                  return (
+                    <article key={message.id} className="message message-user">
+                      <p className="message-meta">You ({message.source})</p>
+                      <p className="message-body">{message.content}</p>
+                    </article>
+                  );
+                }
+
+                return (
+                  <article key={message.id} className="message message-assistant">
+                    <p className="message-meta">Assistant ({message.source})</p>
+                    <div className="assistant-structured">
+                      <section>
+                        <h2>Summary</h2>
+                        <p>{message.content.summary}</p>
+                      </section>
+                      <section>
+                        <h2>Decision</h2>
+                        <p>{message.content.decision}</p>
+                      </section>
+                      <section>
+                        <h2>Next Actions</h2>
+                        {message.content.next_actions.length === 0 ? (
+                          <p className="muted">No next actions returned.</p>
+                        ) : (
+                          <ol>
+                            {message.content.next_actions.map((item, index) => (
+                              <li key={`${item}-${index}`}>{item}</li>
+                            ))}
+                          </ol>
+                        )}
+                      </section>
+                    </div>
+                  </article>
+                );
+              })}
+
+              {isSending && (
+                <article className="message message-assistant">
+                  <p className="message-meta">Assistant</p>
+                  <p className="muted">Thinking...</p>
+                </article>
+              )}
+              <div ref={threadBottomRef} />
+            </div>
+          </section>
+
+          <section className="composer panel">
+            <label className="field" htmlFor="text-message">
+              Message
+              <textarea
+                id="text-message"
+                value={draftMessage}
+                onChange={(event) => setDraftMessage(event.target.value)}
+                placeholder="Ask for architecture, decisions, or execution plan"
+                rows={3}
+                disabled={!sessionId || isSending}
+              />
+            </label>
+
+            <div className="composer-footer">
+              <p className="session-pill" title={sessionId ?? "not created"}>
+                Session: <code>{formatSessionId(sessionId)}</code>
+              </p>
+              <button
+                className="button button-accent"
+                disabled={!sessionId || !draftMessage.trim() || isSending}
+                onClick={() => void send("text", draftMessage)}
+              >
+                {isSending ? "Sending..." : "Send Text"}
+              </button>
+            </div>
+
+            <div className="voice-tools">
               <div className="row">
                 <button
                   className={`button ${voice.isRecording ? "button-danger" : "button-primary"}`}
@@ -337,63 +411,36 @@ export default function HomePage() {
                 </button>
               </div>
               <label className="field" htmlFor="voice-transcript">
-                Transcript
+                Voice Transcript
                 <textarea
                   id="voice-transcript"
                   value={voice.fullTranscript}
                   readOnly
                   placeholder="Transcript appears here while recording"
-                  rows={4}
-                />
-              </label>
-            </article>
-
-            <article className="bubble composer">
-              <label className="field" htmlFor="text-message">
-                Message
-                <textarea
-                  id="text-message"
-                  value={draftMessage}
-                  onChange={(event) => setDraftMessage(event.target.value)}
-                  placeholder="Ask for architecture, decisions, or execution plan"
                   rows={3}
-                  disabled={!sessionId || isSending}
                 />
               </label>
-              <div className="composer-footer">
-                <p className="session-pill" title={sessionId ?? "not created"}>
-                  Session: <code>{formatSessionId(sessionId)}</code>
-                </p>
-                <button
-                  className="button button-accent"
-                  disabled={!sessionId || !draftMessage.trim() || isSending}
-                  onClick={() => void send("text", draftMessage)}
-                >
-                  {isSending ? "Sending..." : "Send Text"}
-                </button>
-              </div>
-            </article>
+            </div>
           </section>
 
-          <section className="inspector-grid">
-            <article className="panel artifacts">
-              <div className="row spaced">
-                <h3>Artifacts</h3>
-                <button
-                  className="button"
-                  onClick={() => sessionId && void loadArtifacts(sessionId)}
-                  disabled={!sessionId || artifactsLoading || isSending}
-                >
-                  {artifactsLoading ? "Refreshing..." : "Refresh"}
-                </button>
-              </div>
+          <section className="artifact-shell panel">
+            <div className="row spaced">
+              <h2>Artifacts</h2>
+              <button
+                className="button"
+                onClick={() => sessionId && void loadArtifacts(sessionId)}
+                disabled={!sessionId || artifactsLoading || isSending}
+              >
+                {artifactsLoading ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
 
-              {artifactsError && <p className="status-inline status-error">{artifactsError}</p>}
+            {artifactsError && <p className="status-inline status-error">{artifactsError}</p>}
 
-              {!sessionId && <p className="muted">Create a session to load artifacts.</p>}
-              {sessionId && !artifactsLoading && artifacts.length === 0 && <p className="muted">No artifacts yet for this session.</p>}
-
+            <div className="artifact-grid">
               <ul className="artifact-list">
+                {!sessionId && <li className="muted">Create a session to load artifacts.</li>}
+                {sessionId && !artifactsLoading && artifacts.length === 0 && <li className="muted">No artifacts yet for this session.</li>}
                 {artifacts.map((artifact) => {
                   const isActive = selectedArtifact?.id === artifact.id;
 
@@ -411,29 +458,29 @@ export default function HomePage() {
                   );
                 })}
               </ul>
-            </article>
 
-            <article className="panel detail">
-              <h3>Artifact Detail</h3>
-              {artifactLoading && <p className="muted">Loading artifact...</p>}
-              {artifactError && <p className="status-inline status-error">{artifactError}</p>}
-              {!artifactLoading && !selectedArtifact && <p className="muted">Select an artifact to inspect markdown and JSON.</p>}
+              <article className="detail">
+                <h3>Artifact Detail</h3>
+                {artifactLoading && <p className="muted">Loading artifact...</p>}
+                {artifactError && <p className="status-inline status-error">{artifactError}</p>}
+                {!artifactLoading && !selectedArtifact && <p className="muted">Select an artifact to inspect markdown and JSON.</p>}
 
-              {selectedArtifact && !artifactLoading && (
-                <>
-                  <p className="muted detail-meta">
-                    {selectedArtifact.title ?? "Untitled"} ({selectedArtifact.kind})
-                  </p>
-                  <div className="markdown-frame">
-                    <ReactMarkdown>{selectedArtifact.content_md || "_No markdown content_"}</ReactMarkdown>
-                  </div>
-                  <div className="json-block">
-                    <h4>JSON Payload</h4>
-                    <pre>{prettyJson ?? "No JSON payload returned for this artifact."}</pre>
-                  </div>
-                </>
-              )}
-            </article>
+                {selectedArtifact && !artifactLoading && (
+                  <>
+                    <p className="muted detail-meta">
+                      {selectedArtifact.title ?? "Untitled"} ({selectedArtifact.kind})
+                    </p>
+                    <div className="markdown-frame">
+                      <ReactMarkdown>{selectedArtifact.content_md || "_No markdown content_"}</ReactMarkdown>
+                    </div>
+                    <div className="json-block">
+                      <h4>JSON Payload</h4>
+                      <pre>{prettyJson ?? "No JSON payload returned for this artifact."}</pre>
+                    </div>
+                  </>
+                )}
+              </article>
+            </div>
           </section>
         </section>
       </section>

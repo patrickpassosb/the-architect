@@ -144,3 +144,25 @@ Voice notes:
 - Queue contracts: [docs/QUEUE.md](docs/QUEUE.md)
 - Local worker flow: [docs/WORKER_LOCAL.md](docs/WORKER_LOCAL.md)
 - Deployment steps: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+
+## MVP Smoke Tests
+Run these before pushing to quickly verify the end-to-end loop.
+
+1. Start the full stack:
+```bash
+npm run dev
+```
+
+2. Run one smoke test pass (expects real provider success):
+```bash
+npm run test:smoke
+```
+
+3. Run multiple smoke passes in a loop:
+```bash
+LOOPS=3 npm run test:smoke:loop
+```
+
+Optional knobs:
+- `REQUIRE_PROVIDER_SUCCESS=1` fails if `/messages` does not return `200`.
+- `ARTIFACT_POLL_ATTEMPTS` and `ARTIFACT_POLL_INTERVAL_MS` control artifact wait timing.
