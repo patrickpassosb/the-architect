@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type VoiceErrorCode =
   | "unsupported"
@@ -17,7 +17,7 @@ export type VoiceError = {
 };
 
 type UseVoiceTranscriptResult = {
-  isSupported: boolean;
+  isSupported: boolean | null;
   isRecording: boolean;
   transcript: string;
   interimTranscript: string;
@@ -76,12 +76,15 @@ export function useVoiceTranscript(): UseVoiceTranscriptResult {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef("");
 
+  const [isSupported, setIsSupported] = useState<boolean | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
   const [error, setError] = useState<VoiceError | null>(null);
 
-  const isSupported = getRecognitionConstructor() !== null;
+  useEffect(() => {
+    setIsSupported(getRecognitionConstructor() !== null);
+  }, []);
 
   const clearTranscript = useCallback(() => {
     finalTranscriptRef.current = "";

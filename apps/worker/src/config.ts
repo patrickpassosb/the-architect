@@ -28,7 +28,7 @@ export function loadConfig(): WorkerConfig {
     redisUrl: process.env.REDIS_URL ?? DEFAULT_REDIS_URL,
     databaseUrl: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
     workerConcurrency: readInt(process.env.WORKER_CONCURRENCY, 4),
-    port: readInt(process.env.PORT, 8080),
+    port: readInt(process.env.WORKER_PORT, 4100),
     serviceName: process.env.SERVICE_NAME ?? "worker"
   };
 }

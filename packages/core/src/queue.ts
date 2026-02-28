@@ -1,7 +1,9 @@
 import { Queue } from "bullmq";
 import type { ConnectionOptions } from "bullmq";
-import { artifactGenerationJobPayloadSchema } from "@the-architect/shared-types";
-import type { ArtifactGenerationJobPayload } from "@the-architect/shared-types";
+import * as sharedTypes from "../../shared-types/dist/index.js";
+import type { ArtifactGenerationJobPayload } from "../../shared-types/dist/index.js";
+
+const { artifactGenerationJobPayloadSchema } = sharedTypes;
 
 export const QUEUE_NAMES = {
   artifactGeneration: "artifact_generation"

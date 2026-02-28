@@ -4,53 +4,61 @@
 ```txt
 Browser (mic + UI)
   -> API (session/orchestration)
-    -> Voxtral realtime (speech understanding)
     -> Mistral Large (reasoning + structured response)
     -> BullMQ enqueue (artifact generation)
       -> Worker processes artifact job
         -> SQLite stores artifacts/session state
-  <- API streams response/events back to Browser
+  <- API JSON responses back to Browser
+```
+
+## Architecture Diagram (Mermaid)
+```mermaid
+flowchart LR
+  W[Next.js Web\napps/web] -->|POST /api/sessions| A[Fastify API\napps/api]
+  W -->|POST /api/sessions/:id/messages| A
+  W -->|GET artifacts| A
+  A -->|chat/completions| M[Mistral API]
+  A -->|enqueue artifact_generation| Q[(Redis + BullMQ)]
+  Q --> WK[Worker\napps/worker]
+  A --> DB[(SQLite)]
+  WK --> DB
+  W <-->|artifact list/detail| A
 ```
 
 ## Components
 
 ### 1) Web App (`apps/web`)
-- Captures voice/audio input
-- Displays live transcript + assistant response
-- Shows artifact list and download actions
+- Captures voice input via browser speech API
+- Sends text/voice transcript messages
+- Displays assistant response + artifact list/detail
 - Handles mode switching (Architect/Planner/Pitch)
 
 ### 2) API Service (`apps/api`)
 - Session management
 - Message intake endpoint
-- Model orchestration pipeline
-- Queue producer for heavy jobs
-- SSE/WebSocket event stream for UI updates
+- Mistral orchestration + schema validation
+- Queue producer for artifact generation jobs
 
 ### 3) Worker Service (`apps/worker`)
 - Consumes BullMQ jobs
-- Generates artifacts (md/json)
-- Persists results in SQLite
-- Emits completion events
+- Generates artifact markdown + JSON payload
+- Persists artifacts and job status in SQLite
 
 ### 4) Shared Packages
 - `shared-types`: zod schemas + inferred TS types
-- `prompts`: system prompts and mode prompts
-- `core`: reusable domain logic
+- `core`: reusable DB/queue/mistral/artifact logic
 
 ## Queue Use Cases
-- Long artifact generation
-- Multi-step synthesis jobs
-- Retry-safe tasks that should not block real-time UX
+- Artifact generation jobs
+- Retry-safe async tasks without blocking API latency
 
 ## Storage (SQLite)
 - sessions
 - messages
 - artifacts
-- jobs (optional app-level tracking)
+- jobs
 
 ## MVP Reliability Rules
 - Every endpoint returns typed JSON
-- Every model output must validate against schema
+- Model output validated against schema
 - Failed jobs retry with exponential backoff
-- If realtime fails, fallback to text flow

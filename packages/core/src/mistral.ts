@@ -1,5 +1,7 @@
-import { assistantResponseSchema } from "@the-architect/shared-types";
-import type { AssistantResponse, Mode } from "@the-architect/shared-types";
+import * as sharedTypes from "../../shared-types/dist/index.js";
+import type { AssistantResponse, Mode } from "../../shared-types/dist/index.js";
+
+const { assistantResponseSchema } = sharedTypes;
 
 const DEFAULT_MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions";
 
@@ -90,31 +92,39 @@ export async function generateMistralAssistantResponse(
   input: MistralClientInput
 ): Promise<AssistantResponse> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), input.timeoutMs ?? 20_000);
+  const timeoutMs = input.timeoutMs ?? 20_000;
 
   try {
-    const response = await fetch(input.apiUrl ?? DEFAULT_MISTRAL_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${input.apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: input.model,
-        temperature: 0.2,
-        messages: [
-          {
-            role: "system",
-            content: buildSystemPrompt(input.mode)
-          },
-          {
-            role: "user",
-            content: input.userInput
-          }
-        ]
+    const response = await Promise.race([
+      fetch(input.apiUrl ?? DEFAULT_MISTRAL_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: input.model,
+          temperature: 0.2,
+          messages: [
+            {
+              role: "system",
+              content: buildSystemPrompt(input.mode)
+            },
+            {
+              role: "user",
+              content: input.userInput
+            }
+          ]
+        }),
+        signal: controller.signal
       }),
-      signal: controller.signal
-    });
+      new Promise<Response>((_resolve, reject) => {
+        setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Mistral request timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      })
+    ]);
 
     if (!response.ok) {
       const errorBody = await response.text();
@@ -128,6 +138,6 @@ export async function generateMistralAssistantResponse(
 
     return assistantResponseSchema.parse(parsed);
   } finally {
-    clearTimeout(timeout);
+    controller.abort();
   }
 }

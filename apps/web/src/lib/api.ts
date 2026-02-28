@@ -37,6 +37,10 @@ async function parseError(response: Response): Promise<string> {
     if (typeof payload?.message === "string" && payload.message.length > 0) {
       return payload.message;
     }
+
+    if (typeof payload?.error === "string" && payload.error.length > 0) {
+      return payload.error;
+    }
   } catch {
     // Ignore JSON parse errors and fall through to status text.
   }

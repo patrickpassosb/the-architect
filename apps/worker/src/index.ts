@@ -1,4 +1,6 @@
-import "dotenv/config";
+import fs from "node:fs";
+import path from "node:path";
+import dotenv from "dotenv";
 import { Worker } from "bullmq";
 import {
   QUEUE_NAMES,
@@ -11,12 +13,62 @@ import {
   upsertJobStatus,
   ensureSessionExists
 } from "@the-architect/core";
-import {
-  ArtifactGenerationJobPayload,
-  artifactGenerationJobPayloadSchema
-} from "@the-architect/shared-types";
+import * as sharedTypes from "../../../packages/shared-types/dist/index.js";
+import type { ArtifactGenerationJobPayload } from "../../../packages/shared-types/dist/index.js";
 import { loadConfig } from "./config";
 import { startHealthServer } from "./health-server";
+
+const { artifactGenerationJobPayloadSchema } = sharedTypes;
+
+function findRepoRoot(startDir: string): string {
+  let currentDir = startDir;
+
+  while (true) {
+    const packageJsonPath = path.join(currentDir, "package.json");
+    if (fs.existsSync(packageJsonPath)) {
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
+          workspaces?: unknown;
+        };
+
+        if (Array.isArray(packageJson.workspaces)) {
+          return currentDir;
+        }
+      } catch {
+        // Ignore malformed package.json and continue searching upwards.
+      }
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      return startDir;
+    }
+
+    currentDir = parentDir;
+  }
+}
+
+function loadEnvironment() {
+  const repoRoot = findRepoRoot(process.cwd());
+
+  dotenv.config({ path: path.join(repoRoot, ".env") });
+  dotenv.config({ path: path.join(repoRoot, ".env.local"), override: true });
+  dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
+  dotenv.config({ path: path.resolve(process.cwd(), ".env.local"), override: true });
+
+  const databaseUrl = process.env.DATABASE_URL;
+  if (
+    databaseUrl &&
+    databaseUrl !== ":memory:" &&
+    !databaseUrl.startsWith("sqlite://") &&
+    !databaseUrl.startsWith("file:") &&
+    !path.isAbsolute(databaseUrl)
+  ) {
+    process.env.DATABASE_URL = path.resolve(repoRoot, databaseUrl);
+  }
+}
+
+loadEnvironment();
 
 async function bootstrap() {
   const config = loadConfig();

@@ -1,0 +1,40 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: the-architect-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    container_name: the-architect-api
+    environment:
+      PORT: "4000"
+      HOST: "0.0.0.0"
+      DATABASE_URL: "/workspace/data/the-architect.sqlite"
+      REDIS_URL: "redis://redis:6379"
+      MISTRAL_API_KEY: "${MISTRAL_API_KEY:-}"
+      MISTRAL_MODEL: "${MISTRAL_MODEL:-mistral-large-latest}"
+    ports:
+      - "4000:4000"
+    depends_on:
+      - redis
+
+  worker:
+    build:
+      context: ..
+      dockerfile: apps/worker/Dockerfile
+    container_name: the-architect-worker
+    environment:
+      WORKER_PORT: "4100"
+      SERVICE_NAME: "worker"
+      WORKER_CONCURRENCY: "5"
+      DATABASE_URL: "/workspace/data/the-architect.sqlite"
+      REDIS_URL: "redis://redis:6379"
+    ports:
+      - "4100:4100"
+    depends_on:
+      - redis

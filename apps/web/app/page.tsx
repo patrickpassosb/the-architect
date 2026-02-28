@@ -201,7 +201,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {!voice.isSupported && (
+      {voice.isSupported === false && (
         <section className="status status-warning">
           Speech recognition is unavailable in this browser. You can still send text messages.
         </section>

@@ -26,6 +26,7 @@ npm run dev:worker
 ```
 
 If you only want to validate queue consumption, API is optional and you can run just the worker.
+Worker health is available at `http://localhost:4100/health`.
 
 ## 4) Enqueue a test job
 ```bash

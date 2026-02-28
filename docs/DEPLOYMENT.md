@@ -18,7 +18,7 @@ API:
 - `SERVICE_NAME=api`
 
 Worker:
-- `PORT` (Cloud Run injects this; worker exposes `/health`)
+- `WORKER_PORT` (set to `8080` for Cloud Run; worker exposes `/health`)
 - `WORKER_CONCURRENCY` (default `4`)
 - `SERVICE_NAME=worker`
 
@@ -53,7 +53,7 @@ gcloud run deploy the-architect-worker \
   --platform managed \
   --no-allow-unauthenticated \
   --min-instances 1 \
-  --set-env-vars REDIS_URL="redis://<REDIS_HOST>:6379",DATABASE_URL="/var/data/the-architect.sqlite",WORKER_CONCURRENCY="4",SERVICE_NAME="worker"
+  --set-env-vars REDIS_URL="redis://<REDIS_HOST>:6379",DATABASE_URL="/var/data/the-architect.sqlite",WORKER_PORT="8080",WORKER_CONCURRENCY="4",SERVICE_NAME="worker"
 ```
 
 Notes:
