@@ -585,7 +585,7 @@ export default function HomePage() {
                     return (
                       <article key={message.id} className="message message-assistant">
                         <div className="row spaced assistant-toolbar">
-                          <p className="message-meta">Assistant ({message.source})</p>
+                          <p className="message-meta">Architect ({message.source})</p>
                           <button
                             className="button button-ghost"
                             onClick={() => void speakAssistant(message.id, message.content)}
@@ -630,7 +630,7 @@ export default function HomePage() {
 
                   {isSending && (
                     <article className="message message-assistant">
-                      <p className="message-meta">Assistant</p>
+                      <p className="message-meta">Architect</p>
                       <p className="muted">Thinking...</p>
                     </article>
                   )}

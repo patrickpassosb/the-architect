@@ -375,14 +375,15 @@ select:focus,
 }
 
 .message-user {
-  justify-self: end;
-  background: rgba(12, 25, 43, 0.84);
-  border-color: rgba(123, 177, 245, 0.42);
+  align-self: flex-end;
+  background: rgba(44, 18, 18, 0.6);
+  border-color: rgba(244, 94, 82, 0.4);
 }
 
 .message-assistant {
-  justify-self: start;
-  background: rgba(8, 14, 24, 0.78);
+  align-self: flex-start;
+  background: rgba(20, 24, 33, 0.8);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
 .message-empty {
