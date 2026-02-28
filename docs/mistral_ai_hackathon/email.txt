@@ -1,0 +1,40 @@
+	
+Mistral Worldwide hackathon - Online edition
+Feb 28, 9:00 AM GMT+1 · discord
+
+Mistral hackathon is starting !
+	
+Thomas Joffrey
+Hi Everyone, 
+
+The hackathon is in a few hours! 
+
+I wanted to resend the relevant links and information to you.
+
+There are 2 tracks for Online:
+
+1) Fine-tuning with W&B :
+Fine-tune Mistral-models with W&B tools through any of the available tools (TRL, Unsloth, etc.) and reach new capacities for the models.
+
+2) Anything goes:
+Use Mistral models through the API or OSS tools to create the best demos.
+
+Then, do not forget to register on the hackathon platform:
+https://hackiterate.com/invite/63f20b24c20257b1c09c1350bb7ca261ffad93c8c507bd8a83828ce8cf6de80a
+
+
+Also join the discord if you haven't already; All updates for the online edition will be posted there. 
+
+https://discord.gg/zdSEmdfkSQ 
+
+Finally, join the HF org as soon as possible to get credits:
+https://huggingface.co/organizations/mistral-hackaton-2026/share/BuptMvYnpxCEnTMuOumANgOGHPDbrgMwoS
+
+To avoid overcrowding on-site submissions, the online hackathon's end date is also delayed compared to the on-site hackathons.
+
+Considering the massive interest this hackathon generated, we will only announce the online winner on Friday 6th of March.
+
+Which model to use ? We recommend using, Ministrals, Mistral Large 3 or Voxtral ( possibly voxtral-realtime )
+
+Best of luck,
+Joffrey

@@ -61,6 +61,30 @@ Phase 1 target: local end-to-end loop working
 4. artifact job queued
 5. artifact saved and shown in UI
 
+## Run Entire Project (One Command)
+1. Install dependencies:
+```bash
+npm install
+```
+2. Create local env file:
+```bash
+cp .env.example .env
+```
+3. Start everything (Redis + API + Worker + Web):
+```bash
+npm run dev
+```
+
+Services:
+- Web: `http://localhost:3000`
+- API: `http://localhost:4000/api/health`
+- Worker health: `http://localhost:4100/health`
+
+If ports are already in use and you want auto-cleanup:
+```bash
+npm run dev:all -- --force
+```
+
 ---
 
 If this repo is used in a hackathon, prioritize: shipping, reliability, and demo clarity over premature complexity.
@@ -120,3 +144,25 @@ Voice notes:
 - Queue contracts: [docs/QUEUE.md](docs/QUEUE.md)
 - Local worker flow: [docs/WORKER_LOCAL.md](docs/WORKER_LOCAL.md)
 - Deployment steps: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+
+## MVP Smoke Tests
+Run these before pushing to quickly verify the end-to-end loop.
+
+1. Start the full stack:
+```bash
+npm run dev
+```
+
+2. Run one smoke test pass (expects real provider success):
+```bash
+npm run test:smoke
+```
+
+3. Run multiple smoke passes in a loop:
+```bash
+LOOPS=3 npm run test:smoke:loop
+```
+
+Optional knobs:
+- `REQUIRE_PROVIDER_SUCCESS=1` fails if `/messages` does not return `200`.
+- `ARTIFACT_POLL_ATTEMPTS` and `ARTIFACT_POLL_INTERVAL_MS` control artifact wait timing.

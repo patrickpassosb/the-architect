@@ -8,6 +8,9 @@ import assert from 'node:assert/strict';
 
 const API_BASE = process.env.API_BASE_URL ?? 'http://127.0.0.1:4000';
 const WORKER_BASE = process.env.WORKER_BASE_URL ?? 'http://127.0.0.1:4100';
+const REQUIRE_PROVIDER_SUCCESS = process.env.REQUIRE_PROVIDER_SUCCESS === '1';
+const ARTIFACT_POLL_ATTEMPTS = Number(process.env.ARTIFACT_POLL_ATTEMPTS ?? '20');
+const ARTIFACT_POLL_INTERVAL_MS = Number(process.env.ARTIFACT_POLL_INTERVAL_MS ?? '1000');
 
 /**
  * Helper to perform a JSON-based fetch request to the API.
@@ -22,9 +25,28 @@ async function jfetch(path, init) {
   return { res, json, text };
 }
 
-/**
- * Verifies that the API health endpoint is reachable and returns an OK status.
- */
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForArtifact(sessionId) {
+  for (let attempt = 1; attempt <= ARTIFACT_POLL_ATTEMPTS; attempt += 1) {
+    const listed = await jfetch(`/api/sessions/${sessionId}/artifacts`);
+    assert.equal(listed.res.status, 200, `artifact list failed on attempt ${attempt}`);
+    if (Array.isArray(listed.json) && listed.json.length > 0) {
+      return listed.json;
+    }
+
+    if (attempt < ARTIFACT_POLL_ATTEMPTS) {
+      await sleep(ARTIFACT_POLL_INTERVAL_MS);
+    }
+  }
+
+  assert.fail(
+    `Timed out waiting for artifacts after ${ARTIFACT_POLL_ATTEMPTS} attempts (${ARTIFACT_POLL_INTERVAL_MS}ms interval)`
+  );
+}
+
 test('api health endpoint', async () => {
   const { res, json } = await jfetch('/api/health');
   assert.equal(res.status, 200);
@@ -59,10 +81,7 @@ test('create session + list artifacts', async () => {
   assert.ok(Array.isArray(listed.json));
 });
 
-/**
- * Ensures that sending a message returns a deterministic response or a clear configuration error.
- */
-test('send message route responds deterministically', async () => {
+test('send message route responds and artifact is eventually generated', async () => {
   const created = await jfetch('/api/sessions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -76,13 +95,22 @@ test('send message route responds deterministically', async () => {
     body: JSON.stringify({ content: 'Design MVP architecture', source: 'text' })
   });
 
-  // If Mistral API key is configured, verify the successful response shape.
-  // If the key is missing, verify the explicit configuration error returned by the API.
-  if (sent.res.status === 200) {
-    assert.ok(sent.json?.assistant?.summary);
-    assert.ok(Array.isArray(sent.json?.assistant?.next_actions));
-  } else {
+  if (sent.res.status !== 200) {
+    if (REQUIRE_PROVIDER_SUCCESS) {
+      assert.fail(
+        `Expected 200 from /messages but got ${sent.res.status}: ${sent.text}`
+      );
+    }
+
     assert.equal(sent.res.status, 500);
     assert.equal(sent.json?.error, 'MISTRAL_API_KEY is not configured');
+    return;
   }
+
+  assert.ok(sent.json?.assistant?.summary);
+  assert.ok(Array.isArray(sent.json?.assistant?.next_actions));
+  assert.ok(Array.isArray(sent.json?.queued_jobs));
+
+  const artifacts = await waitForArtifact(sessionId);
+  assert.ok(artifacts[0]?.id);
 });

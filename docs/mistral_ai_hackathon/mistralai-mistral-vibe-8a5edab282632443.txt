@@ -1,0 +1,2319 @@
+Directory structure:
+└── mistralai-mistral-vibe/
+    ├── README.md
+    ├── AGENTS.md
+    ├── CHANGELOG.md
+    ├── CONTRIBUTING.md
+    ├── docs/
+    │   ├── README.md
+    │   ├── acp-setup.md
+    │   └── proxy-setup.md
+    ├── scripts/
+    │   └── README.md
+    └── vibe/
+        ├── whats_new.md
+        └── core/
+            ├── prompts/
+            │   ├── cli.md
+            │   ├── compact.md
+            │   ├── dangerous_directory.md
+            │   ├── explore.md
+            │   ├── project_context.md
+            │   └── tests.md
+            └── tools/
+                └── builtins/
+                    └── prompts/
+                        ├── ask_user_question.md
+                        ├── bash.md
+                        ├── grep.md
+                        ├── read_file.md
+                        ├── search_replace.md
+                        ├── task.md
+                        ├── todo.md
+                        └── write_file.md
+
+================================================
+FILE: README.md
+================================================
+# Mistral Vibe
+
+[![PyPI Version](https://img.shields.io/pypi/v/mistral-vibe)](https://pypi.org/project/mistral-vibe)
+[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/downloads/release/python-3120/)
+[![CI Status](https://github.com/mistralai/mistral-vibe/actions/workflows/ci.yml/badge.svg)](https://github.com/mistralai/mistral-vibe/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/mistralai/mistral-vibe)](https://github.com/mistralai/mistral-vibe/blob/main/LICENSE)
+
+```
+██████████████████░░
+██████████████████░░
+████  ██████  ████░░
+████    ██    ████░░
+████          ████░░
+████  ██  ██  ████░░
+██      ██      ██░░
+██████████████████░░
+██████████████████░░
+```
+
+**Mistral's open-source CLI coding assistant.**
+
+Mistral Vibe is a command-line coding assistant powered by Mistral's models. It provides a conversational interface to your codebase, allowing you to use natural language to explore, modify, and interact with your projects through a powerful set of tools.
+
+> [!WARNING]
+> Mistral Vibe works on Windows, but we officially support and target UNIX environments.
+
+### One-line install (recommended)
+
+**Linux and macOS**
+
+```bash
+curl -LsSf https://mistral.ai/vibe/install.sh | bash
+```
+
+**Windows**
+
+First, install uv
+```bash
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Then, use uv command below.
+
+### Using uv
+
+```bash
+uv tool install mistral-vibe
+```
+
+### Using pip
+
+```bash
+pip install mistral-vibe
+```
+
+## Table of Contents
+
+- [Features](#features)
+  - [Built-in Agents](#built-in-agents)
+  - [Subagents and Task Delegation](#subagents-and-task-delegation)
+  - [Interactive User Questions](#interactive-user-questions)
+- [Terminal Requirements](#terminal-requirements)
+- [Quick Start](#quick-start)
+- [Usage](#usage)
+  - [Interactive Mode](#interactive-mode)
+  - [Trust Folder System](#trust-folder-system)
+  - [Programmatic Mode](#programmatic-mode)
+- [Slash Commands](#slash-commands)
+  - [Built-in Slash Commands](#built-in-slash-commands)
+  - [Custom Slash Commands via Skills](#custom-slash-commands-via-skills)
+- [Skills System](#skills-system)
+  - [Creating Skills](#creating-skills)
+  - [Skill Discovery](#skill-discovery)
+  - [Managing Skills](#managing-skills)
+- [Configuration](#configuration)
+  - [Configuration File Location](#configuration-file-location)
+  - [API Key Configuration](#api-key-configuration)
+  - [Custom System Prompts](#custom-system-prompts)
+  - [Custom Agent Configurations](#custom-agent-configurations)
+  - [Tool Management](#tool-management)
+  - [MCP Server Configuration](#mcp-server-configuration)
+  - [Session Management](#session-management)
+  - [Update Settings](#update-settings)
+  - [Custom Vibe Home Directory](#custom-vibe-home-directory)
+- [Editors/IDEs](#editorsides)
+- [Resources](#resources)
+- [Data collection & usage](#data-collection--usage)
+- [License](#license)
+
+## Features
+
+- **Interactive Chat**: A conversational AI agent that understands your requests and breaks down complex tasks.
+- **Powerful Toolset**: A suite of tools for file manipulation, code searching, version control, and command execution, right from the chat prompt.
+  - Read, write, and patch files (`read_file`, `write_file`, `search_replace`).
+  - Execute shell commands in a stateful terminal (`bash`).
+  - Recursively search code with `grep` (with `ripgrep` support).
+  - Manage a `todo` list to track the agent's work.
+  - Ask interactive questions to gather user input (`ask_user_question`).
+  - Delegate tasks to subagents for parallel work (`task`).
+- **Project-Aware Context**: Vibe automatically scans your project's file structure and Git status to provide relevant context to the agent, improving its understanding of your codebase.
+- **Advanced CLI Experience**: Built with modern libraries for a smooth and efficient workflow.
+  - Autocompletion for slash commands (`/`) and file paths (`@`).
+  - Persistent command history.
+  - Beautiful Themes.
+- **Highly Configurable**: Customize models, providers, tool permissions, and UI preferences through a simple `config.toml` file.
+- **Safety First**: Features tool execution approval.
+- **Multiple Built-in Agents**: Choose from different agent profiles tailored for specific workflows.
+
+### Built-in Agents
+
+Vibe comes with several built-in agent profiles, each designed for different use cases:
+
+- **`default`**: Standard agent that requires approval for tool executions. Best for general use.
+- **`plan`**: Read-only agent for exploration and planning. Auto-approves safe tools like `grep` and `read_file`.
+- **`accept-edits`**: Auto-approves file edits only (`write_file`, `search_replace`). Useful for code refactoring.
+- **`auto-approve`**: Auto-approves all tool executions. Use with caution.
+
+Use the `--agent` flag to select a different agent:
+
+```bash
+vibe --agent plan
+```
+
+### Subagents and Task Delegation
+
+Vibe supports subagents for delegating tasks. Subagents run independently and can perform specialized work without user interaction, preventing the context from being overloaded.
+
+The `task` tool allows the agent to delegate work to subagents:
+
+```
+> Can you explore the codebase structure while I work on something else?
+
+🤖 I'll use the task tool to delegate this to the explore subagent.
+
+> task(task="Analyze the project structure and architecture", agent="explore")
+```
+
+Create custom subagents by adding `agent_type = "subagent"` to your agent configuration. Vibe comes with a built-in subagent called `explore`, a read-only subagent for codebase exploration used internally for delegation.
+
+### Interactive User Questions
+
+The `ask_user_question` tool allows the agent to ask you clarifying questions during its work. This enables more interactive and collaborative workflows.
+
+```
+> Can you help me refactor this function?
+
+🤖 I need to understand your requirements better before proceeding.
+
+> ask_user_question(questions=[{
+    "question": "What's the main goal of this refactoring?",
+    "options": [
+        {"label": "Performance", "description": "Make it run faster"},
+        {"label": "Readability", "description": "Make it easier to understand"},
+        {"label": "Maintainability", "description": "Make it easier to modify"}
+    ]
+}])
+```
+
+The agent can ask multiple questions at once, displayed as tabs. Each question supports 2-4 options plus an automatic "Other" option for free text responses.
+
+## Terminal Requirements
+
+Vibe's interactive interface requires a modern terminal emulator. Recommended terminal emulators include:
+
+- **WezTerm** (cross-platform)
+- **Alacritty** (cross-platform)
+- **Ghostty** (Linux and macOS)
+- **Kitty** (Linux and macOS)
+
+Most modern terminals should work, but older or minimal terminal emulators may have display issues.
+
+## Quick Start
+
+1. Navigate to your project's root directory:
+
+   ```bash
+   cd /path/to/your/project
+   ```
+
+2. Run Vibe:
+
+   ```bash
+   vibe
+   ```
+
+3. If this is your first time running Vibe, it will:
+
+   - Create a default configuration file at `~/.vibe/config.toml`
+   - Prompt you to enter your API key if it's not already configured
+   - Save your API key to `~/.vibe/.env` for future use
+
+   Alternatively, you can configure your API key separately using `vibe --setup`.
+
+4. Start interacting with the agent!
+
+   ```
+   > Can you find all instances of the word "TODO" in the project?
+
+   🤖 The user wants to find all instances of "TODO". The `grep` tool is perfect for this. I will use it to search the current directory.
+
+   > grep(pattern="TODO", path=".")
+
+   ... (grep tool output) ...
+
+   🤖 I found the following "TODO" comments in your project.
+   ```
+
+## Usage
+
+### Interactive Mode
+
+Simply run `vibe` to enter the interactive chat loop.
+
+- **Multi-line Input**: Press `Ctrl+J` or `Shift+Enter` for select terminals to insert a newline.
+- **File Paths**: Reference files in your prompt using the `@` symbol for smart autocompletion (e.g., `> Read the file @src/agent.py`).
+- **Shell Commands**: Prefix any command with `!` to execute it directly in your shell, bypassing the agent (e.g., `> !ls -l`).
+- **External Editor**: Press `Ctrl+G` to edit your current input in an external editor.
+- **Tool Output Toggle**: Press `Ctrl+O` to toggle the tool output view.
+- **Todo View Toggle**: Press `Ctrl+T` to toggle the todo list view.
+- **Auto-Approve Toggle**: Press `Shift+Tab` to toggle auto-approve mode on/off.
+
+You can start Vibe with a prompt using the following command:
+
+```bash
+vibe "Refactor the main function in cli/main.py to be more modular."
+```
+
+**Note**: The `--auto-approve` flag automatically approves all tool executions without prompting. In interactive mode, you can also toggle auto-approve on/off using `Shift+Tab`.
+
+### Trust Folder System
+
+Vibe includes a trust folder system to ensure you only run the agent in directories you trust. When you first run Vibe in a new directory which contains a `.vibe` subfolder, it may ask you to confirm whether you trust the folder.
+
+Trusted folders are remembered for future sessions. You can manage trusted folders through its configuration file `~/.vibe/trusted_folders.toml`.
+
+This safety feature helps prevent accidental execution in sensitive directories.
+
+### Programmatic Mode
+
+You can run Vibe non-interactively by piping input or using the `--prompt` flag. This is useful for scripting.
+
+```bash
+vibe --prompt "Refactor the main function in cli/main.py to be more modular."
+```
+
+By default, it uses `auto-approve` mode.
+
+#### Programmatic Mode Options
+
+When using `--prompt`, you can specify additional options:
+
+- **`--max-turns N`**: Limit the maximum number of assistant turns. The session will stop after N turns.
+- **`--max-price DOLLARS`**: Set a maximum cost limit in dollars. The session will be interrupted if the cost exceeds this limit.
+- **`--enabled-tools TOOL`**: Enable specific tools. In programmatic mode, this disables all other tools. Can be specified multiple times. Supports exact names, glob patterns (e.g., `bash*`), or regex with `re:` prefix (e.g., `re:^serena_.*$`).
+- **`--output FORMAT`**: Set the output format. Options:
+  - `text` (default): Human-readable text output
+  - `json`: All messages as JSON at the end
+  - `streaming`: Newline-delimited JSON per message
+
+Example:
+
+```bash
+vibe --prompt "Analyze the codebase" --max-turns 5 --max-price 1.0 --output json
+```
+
+## Slash Commands
+
+Use slash commands for meta-actions and configuration changes during a session.
+
+### Built-in Slash Commands
+
+Vibe provides several built-in slash commands. Use slash commands by typing them in the input box:
+
+```
+> /help
+```
+
+### Custom Slash Commands via Skills
+
+You can define your own slash commands through the skills system. Skills are reusable components that extend Vibe's functionality.
+
+To create a custom slash command:
+
+1. Create a skill directory with a `SKILL.md` file
+2. Set `user-invocable = true` in the skill metadata
+3. Define the command logic in your skill
+
+Example skill metadata:
+
+```markdown
+---
+name: my-skill
+description: My custom skill with slash commands
+user-invocable: true
+---
+```
+
+Custom slash commands appear in the autocompletion menu alongside built-in commands.
+
+## Skills System
+
+Vibe's skills system allows you to extend functionality through reusable components. Skills can add new tools, slash commands, and specialized behaviors.
+
+Vibe follows the [Agent Skills specification](https://agentskills.io/specification) for skill format and structure.
+
+### Creating Skills
+
+Skills are defined in directories with a `SKILL.md` file containing metadata in YAML frontmatter. For example, `~/.vibe/skills/code-review/SKILL.md`:
+
+```markdown
+---
+name: code-review
+description: Perform automated code reviews
+license: MIT
+compatibility: Python 3.12+
+user-invocable: true
+allowed-tools:
+  - read_file
+  - grep
+  - ask_user_question
+---
+
+# Code Review Skill
+
+This skill helps analyze code quality and suggest improvements.
+```
+
+### Skill Discovery
+
+Vibe discovers skills from multiple locations:
+
+1. **Custom paths**: Configured in `config.toml` via `skill_paths`
+2. **Standard Agent Skills path** (project root, trusted folders only): `.agents/skills/` — [Agent Skills](https://agentskills.io) standard
+3. **Local project skills** (project root, trusted folders only): `.vibe/skills/` in your project
+4. **Global skills directory**: `~/.vibe/skills/`
+
+```toml
+skill_paths = ["/path/to/custom/skills"]
+```
+
+### Managing Skills
+
+Enable or disable skills using patterns in your configuration:
+
+```toml
+# Enable specific skills
+enabled_skills = ["code-review", "test-*"]
+
+# Disable specific skills
+disabled_skills = ["experimental-*"]
+```
+
+Skills support the same pattern matching as tools (exact names, glob patterns, and regex).
+
+## Configuration
+
+### Configuration File Location
+
+Vibe is configured via a `config.toml` file. It looks for this file first in `./.vibe/config.toml` and then falls back to `~/.vibe/config.toml`.
+
+### API Key Configuration
+
+To use Vibe, you'll need a Mistral API key. You can obtain one by signing up at [https://console.mistral.ai](https://console.mistral.ai).
+
+You can configure your API key using `vibe --setup`, or through one of the methods below.
+
+Vibe supports multiple ways to configure your API keys:
+
+1. **Interactive Setup (Recommended for first-time users)**: When you run Vibe for the first time or if your API key is missing, Vibe will prompt you to enter it. The key will be securely saved to `~/.vibe/.env` for future sessions.
+
+2. **Environment Variables**: Set your API key as an environment variable:
+
+   ```bash
+   export MISTRAL_API_KEY="your_mistral_api_key"
+   ```
+
+3. **`.env` File**: Create a `.env` file in `~/.vibe/` and add your API keys:
+
+   ```bash
+   MISTRAL_API_KEY=your_mistral_api_key
+   ```
+
+   Vibe automatically loads API keys from `~/.vibe/.env` on startup. Environment variables take precedence over the `.env` file if both are set.
+
+**Note**: The `.env` file is specifically for API keys and other provider credentials. General Vibe configuration should be done in `config.toml`.
+
+### Custom System Prompts
+
+You can create custom system prompts to replace the default one (`prompts/cli.md`). Create a markdown file in the `~/.vibe/prompts/` directory with your custom prompt content.
+
+To use a custom system prompt, set the `system_prompt_id` in your configuration to match the filename (without the `.md` extension):
+
+```toml
+# Use a custom system prompt
+system_prompt_id = "my_custom_prompt"
+```
+
+This will load the prompt from `~/.vibe/prompts/my_custom_prompt.md`.
+
+### Custom Agent Configurations
+
+You can create custom agent configurations for specific use cases (e.g., red-teaming, specialized tasks) by adding agent-specific TOML files in the `~/.vibe/agents/` directory.
+
+To use a custom agent, run Vibe with the `--agent` flag:
+
+```bash
+vibe --agent my_custom_agent
+```
+
+Vibe will look for a file named `my_custom_agent.toml` in the agents directory and apply its configuration.
+
+Example custom agent configuration (`~/.vibe/agents/redteam.toml`):
+
+```toml
+# Custom agent configuration for red-teaming
+active_model = "devstral-2"
+system_prompt_id = "redteam"
+
+# Disable some tools for this agent
+disabled_tools = ["search_replace", "write_file"]
+
+# Override tool permissions for this agent
+[tools.bash]
+permission = "always"
+
+[tools.read_file]
+permission = "always"
+```
+
+Note: This implies that you have set up a redteam prompt named `~/.vibe/prompts/redteam.md`.
+
+### Tool Management
+
+#### Enable/Disable Tools with Patterns
+
+You can control which tools are active using `enabled_tools` and `disabled_tools`.
+These fields support exact names, glob patterns, and regular expressions.
+
+Examples:
+
+```toml
+# Only enable tools that start with "serena_" (glob)
+enabled_tools = ["serena_*"]
+
+# Regex (prefix with re:) — matches full tool name (case-insensitive)
+enabled_tools = ["re:^serena_.*$"]
+
+# Disable a group with glob; everything else stays enabled
+disabled_tools = ["mcp_*", "grep"]
+```
+
+Notes:
+
+- MCP tool names use underscores, e.g., `serena_list` not `serena.list`.
+- Regex patterns are matched against the full tool name using fullmatch.
+
+### MCP Server Configuration
+
+You can configure MCP (Model Context Protocol) servers to extend Vibe's capabilities. Add MCP server configurations under the `mcp_servers` section:
+
+```toml
+# Example MCP server configurations
+[[mcp_servers]]
+name = "my_http_server"
+transport = "http"
+url = "http://localhost:8000"
+headers = { "Authorization" = "Bearer my_token" }
+api_key_env = "MY_API_KEY_ENV_VAR"
+api_key_header = "Authorization"
+api_key_format = "Bearer {token}"
+
+[[mcp_servers]]
+name = "my_streamable_server"
+transport = "streamable-http"
+url = "http://localhost:8001"
+headers = { "X-API-Key" = "my_api_key" }
+
+[[mcp_servers]]
+name = "fetch_server"
+transport = "stdio"
+command = "uvx"
+args = ["mcp-server-fetch"]
+env = { "DEBUG" = "1", "LOG_LEVEL" = "info" }
+```
+
+Supported transports:
+
+- `http`: Standard HTTP transport
+- `streamable-http`: HTTP transport with streaming support
+- `stdio`: Standard input/output transport (for local processes)
+
+Key fields:
+
+- `name`: A short alias for the server (used in tool names)
+- `transport`: The transport type
+- `url`: Base URL for HTTP transports
+- `headers`: Additional HTTP headers
+- `api_key_env`: Environment variable containing the API key
+- `command`: Command to run for stdio transport
+- `args`: Additional arguments for stdio transport
+- `startup_timeout_sec`: Timeout in seconds for the server to start and initialize (default 10s)
+- `tool_timeout_sec`: Timeout in seconds for tool execution (default 60s)
+- `env`: Environment variables to set for the MCP server of transport type stdio
+
+MCP tools are named using the pattern `{server_name}_{tool_name}` and can be configured with permissions like built-in tools:
+
+```toml
+# Configure permissions for specific MCP tools
+[tools.fetch_server_get]
+permission = "always"
+
+[tools.my_http_server_query]
+permission = "ask"
+```
+
+MCP server configurations support additional features:
+
+- **Environment variables**: Set environment variables for MCP servers
+- **Custom timeouts**: Configure startup and tool execution timeouts
+
+Example with environment variables and timeouts:
+
+```toml
+[[mcp_servers]]
+name = "my_server"
+transport = "http"
+url = "http://localhost:8000"
+env = { "DEBUG" = "1", "LOG_LEVEL" = "info" }
+startup_timeout_sec = 15
+tool_timeout_sec = 120
+```
+
+### Session Management
+
+#### Session Continuation and Resumption
+
+Vibe supports continuing from previous sessions:
+
+- **`--continue`** or **`-c`**: Continue from the most recent saved session
+- **`--resume SESSION_ID`**: Resume a specific session by ID (supports partial matching)
+
+```bash
+# Continue from last session
+vibe --continue
+
+# Resume specific session
+vibe --resume abc123
+```
+
+Session logging must be enabled in your configuration for these features to work.
+
+#### Working Directory Control
+
+Use the `--workdir` option to specify a working directory:
+
+```bash
+vibe --workdir /path/to/project
+```
+
+This is useful when you want to run Vibe from a different location than your current directory.
+
+### Update Settings
+
+#### Auto-Update
+
+Vibe includes an automatic update feature that keeps your installation current. This is enabled by default.
+
+To disable auto-updates, add this to your `config.toml`:
+
+```toml
+enable_auto_update = false
+```
+
+### Custom Vibe Home Directory
+
+By default, Vibe stores its configuration in `~/.vibe/`. You can override this by setting the `VIBE_HOME` environment variable:
+
+```bash
+export VIBE_HOME="/path/to/custom/vibe/home"
+```
+
+This affects where Vibe looks for:
+
+- `config.toml` - Main configuration
+- `.env` - API keys
+- `agents/` - Custom agent configurations
+- `prompts/` - Custom system prompts
+- `tools/` - Custom tools
+- `logs/` - Session logs
+
+## Editors/IDEs
+
+Mistral Vibe can be used in text editors and IDEs that support [Agent Client Protocol](https://agentclientprotocol.com/overview/clients). See the [ACP Setup documentation](docs/acp-setup.md) for setup instructions for various editors and IDEs.
+
+## Resources
+
+- [CHANGELOG](CHANGELOG.md) - See what's new in each version
+- [CONTRIBUTING](CONTRIBUTING.md) - Guidelines for feature requests, feedback and bug reports
+
+## Data collection & usage
+
+Use of Vibe is subject to our [Privacy Policy](https://legal.mistral.ai/terms/privacy-policy) and may include the collection and processing of data related to your use of the service, such as usage data, to operate, maintain, and improve Vibe. You can disable telemetry in your `config.toml` by setting `enable_telemetry = false`.
+
+## License
+
+Copyright 2025 Mistral AI
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the [LICENSE](LICENSE) file for the full license text.
+
+
+
+================================================
+FILE: AGENTS.md
+================================================
+# python312.rule
+# Rule for enforcing modern Python 3.12+ best practices.
+# Applies to all Python files (*.py) in the project.
+#
+# Guidelines covered:
+# - Use match-case syntax instead of if/elif/else for pattern matching.
+# - Use the walrus operator (:=) when it simplifies assignments and tests.
+# - Favor a "never nester" approach by avoiding deep nesting with early returns or guard clauses.
+# - Employ modern type hints using built-in generics (list, dict) and the union pipe (|) operator,
+#   rather than deprecated types from the typing module (e.g., Optional, Union, Dict, List).
+# - Ensure code adheres to strong static typing practices compatible with static analyzers like pyright.
+# - Favor pathlib.Path methods for file system operations over older os.path functions.
+# - Write code in a declarative and minimalist style that clearly expresses its intent.
+# - Additional best practices including f-string formatting, comprehensions, context managers, and overall PEP 8 compliance.
+
+description: "Modern Python 3.12+ best practices and style guidelines for coding."
+files: "**/*.py"
+
+guidelines:
+  - title: "Match-Case Syntax"
+    description: >
+      Prefer using the match-case construct over traditional if/elif/else chains when pattern matching
+      is applicable. This leads to clearer, more concise, and more maintainable code.
+
+  - title: "Walrus Operator"
+    description: >
+      Utilize the walrus operator (:=) to streamline code where assignment and conditional testing can be combined.
+      Use it judiciously when it improves readability and reduces redundancy.
+
+  - title: "Never Nester"
+    description: >
+      Aim to keep code flat by avoiding deep nesting. Use early returns, guard clauses, and refactoring to
+      minimize nested structures, making your code more readable and maintainable.
+
+  - title: "Modern Type Hints"
+    description: >
+      Adopt modern type hinting by using built-in generics like list and dict, along with the pipe (|) operator
+      for union types (e.g., int | None). Avoid older, deprecated constructs such as Optional, Union, Dict, and List
+      from the typing module.
+
+  - title: "Strong Static Typing"
+    description: >
+      Write code with explicit and robust type annotations that are fully compatible with static type checkers
+      like pyright. This ensures higher code reliability and easier maintenance.
+
+  - title: "Pydantic-First Parsing"
+    description: >
+      Prefer Pydantic v2's native validation over ad-hoc parsing. Use `model_validate`,
+      `field_validator`, `from_attributes`, and field aliases to coerce external SDK/DTO objects.
+      Avoid manual `getattr`/`hasattr` flows and custom constructors like `from_sdk` unless they are
+      thin wrappers over `model_validate`. Keep normalization logic inside model validators so call sites
+      remain declarative and typed.
+
+  - title: "Pathlib for File Operations"
+    description: >
+      Favor the use of pathlib.Path methods for file system operations. This approach offers a more
+      readable, object-oriented way to handle file paths and enhances cross-platform compatibility,
+      reducing reliance on legacy os.path functions.
+
+  - title: "Declarative and Minimalist Code"
+    description: >
+      Write code that is declarative—clearly expressing its intentions rather than focusing on implementation details.
+      Strive to keep your code minimalist by removing unnecessary complexity and boilerplate. This approach improves
+      readability, maintainability, and aligns with modern Python practices.
+
+  - title: "Additional Best Practices"
+    description: >
+      Embrace other modern Python idioms such as:
+      - Using f-strings for string formatting.
+      - Favoring comprehensions for building lists and dictionaries.
+      - Employing context managers (with statements) for resource management.
+      - Following PEP 8 guidelines to maintain overall code style consistency.
+
+  - title: "Exception Documentation"
+    description: >
+      Document exceptions accurately and minimally in docstrings:
+      - Only document exceptions that are explicitly raised in the function implementation
+      - Remove Raises entries for exceptions that are not directly raised
+      - Include all possible exceptions from explicit raise statements
+      - For public APIs, document exceptions from called functions if they are allowed to propagate
+      - Avoid documenting built-in exceptions that are obvious (like TypeError from type hints)
+      This ensures documentation stays accurate and maintainable, avoiding the common pitfall
+      of listing every possible exception that could theoretically occur.
+
+  - title: "Modern Enum Usage"
+    description: >
+      Leverage Python's enum module effectively following modern practices:
+      - Use StrEnum for string-based enums that need string comparison
+      - Use IntEnum/IntFlag for performance-critical integer-based enums
+      - Use auto() for automatic value assignment to maintain clean code
+      - Always use UPPERCASE for enum members to avoid name clashes
+      - Add methods to enums when behavior needs to be associated with values
+      - Use @property for computed attributes rather than storing values
+      - For type mixing, ensure mix-in types appear before Enum in base class sequence
+      - Consider Flag/IntFlag for bit field operations
+      - Use _generate_next_value_ for custom value generation
+      - Implement __bool__ when enum boolean evaluation should depend on value
+      This promotes type-safe constants, self-documenting code, and maintainable value sets.
+
+  - title: "No Inline Ignores"
+    description: >
+      Do not use inline suppressions like `# type: ignore[...]` or `# noqa[...]` in production code.
+      Instead, fix types and lint warnings at the source by:
+      - Refining signatures with generics (TypeVar), Protocols, or precise return types
+      - Guarding with `isinstance` checks before attribute access
+      - Using `typing.cast` when control flow guarantees the type
+      - Extracting small helpers to create clearer, typed boundaries
+      If a suppression is truly unavoidable at an external boundary, prefer a narrow, well-typed wrapper
+      over in-line ignores, and document the rationale in code comments.
+
+  - title: "Pydantic Discriminated Unions"
+    description: >
+      When modeling variants with a discriminated union (e.g., on a `transport` field), do not narrow a
+      field type in a subclass (e.g., overriding `transport: Literal['http']` with `Literal['streamable-http']`).
+      This violates Liskov substitution and triggers type checker errors due to invariance of class attributes.
+      Prefer sibling classes plus a shared mixin for common fields and helpers, and compose the union with
+      `Annotated[Union[...], Field(discriminator='transport')]`.
+      Example pattern:
+      - Create a base with shared non-discriminator fields (e.g., `_MCPBase`).
+      - Create a mixin with protocol-specific fields/methods (e.g., `_MCPHttpFields`), without a `transport`.
+      - Define sibling final classes per variant (e.g., `MCPHttp`, `MCPStreamableHttp`, `MCPStdio`) that set
+        `transport: Literal[...]` once in each final class.
+      - Use `match` on the discriminator to narrow types at call sites.
+
+  - title: "Use uv for All Commands"
+    description: >
+      We use uv to manage our python environment. You should nevery try to run a bare python commands.
+      Always run commands using `uv` instead of invoking `python` or `pip` directly.
+      For example, use `uv add package` and `uv run script.py` rather than `pip install package` or `python script.py`.
+      This practice helps avoid environment drift and leverages modern Python packaging best practices.
+      Useful uv commands are:
+      - uv add/remove <package> to manage dependencies
+      - uv sync to install dependencies declared in pyproject.toml and uv.lock
+      - uv run script.py to run a script within the uv environment
+      - uv run pytest (or any other python tool) to run the tool within the uv environment
+
+  - title: "Imports in Cursor (no Pylance)"
+    description: >
+      Cursor's built-in Pyright does not offer the "Add import" quick fix (Ctrl+.). To add a missing import:
+      - Use the workspace snippets: type the prefix (e.g. acpschema, acphelpers, vibetypes, vibeconfig) and accept the suggestion to insert the import line, then change the symbol name.
+      - Or ask Cursor: select the undefined symbol, then Cmd+K and request "Add the missing import for <symbol>".
+      - Or copy the import from an existing file in the repo (e.g. acp.schema, acp.helpers, vibe.core.*).
+
+
+
+================================================
+FILE: CHANGELOG.md
+================================================
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [2.2.1] - 2026-02-18
+
+### Added
+
+- Multiple clipboard copy strategies: OSC52 first, then pyperclip fallback when system clipboard is available (e.g. local GUI, SSH without OSC52)
+- Ctrl+Z to put Vibe in background
+
+### Changed
+
+- Improve performance around streaming and scrolling
+- File watcher is now opt-out by default; opt-in via config
+- Bump Textual version in dependencies
+- Inline code styling: yellow bold with transparent background for better readability
+
+### Fixed
+
+- Banner: sync skills count after initial app mount (fixes wrong count in some cases)
+- Collapsed tool results: strip newlines in truncation to remove extra blank line
+- Context token widget: preserve stats listeners across `/clear` so token percentage updates correctly
+- Vertex AI: cache credentials to avoid blocking the event loop on every LLM request
+- Bash tool: remove `NO_COLOR` from subprocess env to fix snapshot tests and colored output
+
+
+## [2.2.0] - 2026-02-17
+
+### Added
+
+- Google Vertex AI support
+- Telemetry: user interaction and tool usage events sent to datalake (configurable via `disable_telemetry`)
+- Skill discovery from `.agents/skills/` (Agent Skills standard) in addition to `.vibe/skills/`
+- ACP: `session/load` and `session/list` for loading and listing sessions
+- New model behavior prompts (CLI and explore)
+- Proxy Wizard (PoC) for CLI and for ACP
+- Proxy setup documentation
+- Documentation for JetBrains ACP registry
+
+### Changed
+
+- Trusted folders: presence of `.agents` is now considered trustable content
+- Logging handling updated
+- Pin `cryptography` to >=44.0.0,<=46.0.3; uv sync for cryptography
+
+### Fixed
+
+- Auto scroll when switching to input
+- MCP stdio: redirect stderr to logger to avoid unwanted console output
+- Align `pyproject.toml` minimum versions with `uv.lock` for pip installs
+- Middleware injection: use standalone user messages instead of mutating flushed messages
+- Revert cryptography 46.0.5 bump for compatibility
+- Pin banner version in UI snapshot tests for stability
+
+
+## [2.1.0] - 2026-02-11
+
+### Added
+
+- Incremental load of long sessions: windowing (20 messages), "Load more" to fetch older messages, scroll to bottom when resuming
+- ACP support for thinking (agent-client-protocol 0.8.0)
+- Support for FIFO path for env file
+
+### Changed
+
+- **UI redesign**: new look and layout for the CLI
+- Textual UI optimizations: ChatScroll to reduce style recalculations, VerticalGroup for messages, stream layout for streaming blocks, cached DOM queries
+- Bumped agent-client-protocol to 0.8.0
+- Use UTC date for timestamps
+- Clipboard behavior improvements
+- Docs updated for GitHub discussions
+- Made the Upgrade to Pro banner less prominent
+
+### Fixed
+
+- Fixed inaccurate token count in UI in some cases
+- Fixed agent prompt overrides being ignored
+- Terminal setup: avoid overwriting Wezterm config
+
+### Removed
+
+- Legacy terminal theme module and agent indicator widget
+- Standalone onboarding theme selection screen (replaced by redesign)
+
+
+## [2.0.2] - 2026-01-30
+
+### Added
+
+- Allow environment variables to be overridden by dotenv files
+- Display custom rate limit messages depending on plan type
+
+### Changed
+
+- Made plan offer message more discreet in UI
+- Speed up latest session scan and harden validation
+- Updated pytest-xdist configuration to schedule single test chunks
+
+### Fixed
+
+- Prevent duplicate messages in persisted sessions
+- Fix ACP bash tool to pass full command string for chained commands
+- Fix global agent prompt not being loaded correctly
+- Do not propose to "resume" when there is nothing to resume
+
+
+## [2.0.1] - 2026-01-28
+
+### Fixed
+
+- Fix encoding issues in Windows
+
+
+## [2.0.0] - 2026-01-27
+
+### Added
+
+- Subagent support
+- AskUserQuestion tool for interactive user input
+- User-defined slash commands through skills
+- What's new message display on version update
+- Auto-update feature
+- Environment variables and timeout support for MCP servers
+- Editor shortcut support
+- Shift+enter support for VS Code Insiders
+- Message ID property for messages
+- Client notification of compaction events
+- debugpy support for macOS debugging
+
+### Changed
+
+- Mode system refactored to Agents
+- Standardized managers
+- Improved system prompt
+- Updated session storage to separate metadata from messages
+- Use shell environment to determine shell in bash tool
+- Expanded user input handling
+- Bumped agent-client-protocol to 0.7.1
+- Refactored UI to require AgentLoop at VibeApp construction
+- Updated README with new MCP server config
+- Improved readability of the AskUserQuerstion tool output
+
+### Fixed
+
+- Use ensure_ascii=False for all JSON dumps
+- Delete long-living temporary session files
+- Ignore system prompt when saving/loading session messages
+- Bash tool timeout handling
+- Clipboard: no markup parsing of selected texts
+- Canonical imports
+- Remove last user message from compaction
+- Pause tool timer while awaiting user action
+
+### Removed
+
+- instructions.md support
+- workdir setting in config file
+
+
+## [1.3.5] - 2026-01-12
+
+### Fixed
+
+- bash tool not discovered by vibe-acp
+
+## [1.3.4] - 2026-01-07
+
+### Fixed
+
+- markup in blinking messages
+- safety around Bash and AGENTS.md
+- explicit permissions to GitHub Actions workflows
+- improve render performance in long sessions
+
+## [1.3.3] - 2025-12-26
+
+### Fixed
+
+- Fix config desyncing issues
+
+## [1.3.2] - 2025-12-24
+
+### Added
+
+- User definable reasoning field
+
+### Fixed
+
+- Fix rendering issue with spinner
+
+## [1.3.1] - 2025-12-24
+
+### Fixed
+
+- Fix crash when continuing conversation
+- Fix Nix flake to not export python
+
+## [1.3.0] - 2025-12-23
+
+### Added
+
+- agentskills.io support
+- Reasoning support
+- Native terminal theme support
+- Issue templates for bug reports and feature requests
+- Auto update zed extension on release creation
+
+### Changed
+
+- Improve ToolUI system with better rendering and organization
+- Use pinned actions in CI workflows
+- Remove 100k -> 200k tokens config migration
+
+### Fixed
+
+- Fix `-p` mode to auto-approve tool calls
+- Fix crash when switching mode
+- Fix some cases where clipboard copy didn't work
+
+## [1.2.2] - 2025-12-22
+
+### Fixed
+
+- Remove dead code
+- Fix artefacts automatically attached to the release
+- Refactor agent post streaming
+
+## [1.2.1] - 2025-12-18
+
+### Fixed
+
+- Improve error message when running in home dir
+- Do not show trusted folder workflow in home dir
+
+## [1.2.0] - 2025-12-18
+
+### Added
+
+- Modular mode system
+- Trusted folder mechanism for local .vibe directories
+- Document public setup for vibe-acp in zed, jetbrains and neovim
+- `--version` flag
+
+### Changed
+
+- Improve UI based on feedback
+- Remove unnecessary logging and flushing for better performance
+- Update textual
+- Update nix flake
+- Automate binary attachment to GitHub releases
+
+### Fixed
+
+- Prevent segmentation fault on exit by shutting down thread pools
+- Fix extra spacing with assistant message
+
+## [1.1.3] - 2025-12-12
+
+### Added
+
+- Add more copy_to_clipboard methods to support all cases
+- Add bindings to scroll chat history
+
+### Changed
+
+- Relax config to accept extra inputs
+- Remove useless stats from assistant events
+- Improve scroll actions while streaming
+- Do not check for updates more than once a day
+- Use PyPI in update notifier
+
+### Fixed
+
+- Fix tool permission handling for "allow always" option in ACP
+- Fix security issue: prevent command injection in GitHub Action prompt handling
+- Fix issues with vLLM
+
+## [1.1.2] - 2025-12-11
+
+### Changed
+
+- add `terminal-auth` auth method to ACP agent only if the client supports it
+- fix `user-agent` header when using Mistral backend, using SDK hook
+
+## [1.1.1] - 2025-12-10
+
+### Changed
+
+- added `include_commit_signature` in `config.toml` to disable signing commits
+
+## [1.1.0] - 2025-12-10
+
+### Fixed
+
+- fixed crash in some rare instances when copy-pasting
+
+### Changed
+
+- improved context length from 100k to 200k
+
+## [1.0.6] - 2025-12-10
+
+### Fixed
+
+- add missing steps in bump_version script
+- move `pytest-xdist` to dev dependencies
+- take into account config for bash timeout
+
+### Changed
+
+- improve textual performance
+- improve README:
+  - improve windows installation instructions
+  - update default system prompt reference
+  - document MCP tool permission configuration
+
+## [1.0.5] - 2025-12-10
+
+### Fixed
+
+- Fix streaming with OpenAI adapter
+
+## [1.0.4] - 2025-12-09
+
+### Changed
+
+- Rename agent in distribution/zed/extension.toml to mistral-vibe
+
+### Fixed
+
+- Fix icon and description in distribution/zed/extension.toml
+
+### Removed
+
+- Remove .envrc file
+
+## [1.0.3] - 2025-12-09
+
+### Added
+
+- Add LICENCE symlink in distribution/zed for compatibility with zed extension release process
+
+## [1.0.2] - 2025-12-09
+
+### Fixed
+
+- Fix setup flow for vibe-acp builds
+
+## [1.0.1] - 2025-12-09
+
+### Fixed
+
+- Fix update notification
+
+## [1.0.0] - 2025-12-09
+
+### Added
+
+- Initial release
+
+
+
+================================================
+FILE: CONTRIBUTING.md
+================================================
+# Contributing to Mistral Vibe
+
+Thank you for your interest in Mistral Vibe! We appreciate your enthusiasm and support.
+
+## Current Status
+
+**Mistral Vibe is in active development** — our team is iterating quickly and making lots of changes under the hood. Because of this pace, we may be slower than usual when reviewing PRs and issues.
+
+**We especially encourage**:
+
+- **Bug reports** – Help us uncover and squash issues
+- **Feedback & ideas** – Tell us what works, what doesn't, and what could be even better
+- **Documentation improvements** – Suggest clarity improvements or highlight missing pieces
+
+## How to Provide Feedback
+
+### Bug Reports
+
+If you encounter a bug, please open an issue with the following information:
+
+1. **Description**: A clear description of the bug
+2. **Steps to Reproduce**: Detailed steps to reproduce the issue
+3. **Expected Behavior**: What you expected to happen
+4. **Actual Behavior**: What actually happened
+5. **Environment**:
+   - Python version
+   - Operating system
+   - Vibe version
+6. **Error Messages**: Any error messages or stack traces
+7. **Configuration**: Relevant parts of your `config.toml` (redact any sensitive information)
+
+### Feature Requests and Feedback
+
+We'd love to hear your ideas! When submitting feedback or feature request discussions:
+
+1. **Avoid duplicates**: Check opened discussions before creating a new one
+2. **Clear Description**: Explain what you'd like to see or improve
+3. **Use Case**: Describe your use case and why this would be valuable
+4. **Alternatives**: If applicable, mention any alternatives you've considered
+
+## Development Setup
+
+This section is for developers who want to set up the repository for local development, even though we're not currently accepting contributions.
+
+### Prerequisites
+
+- Python 3.12 or higher
+- [uv](https://github.com/astral-sh/uv) - Modern Python package manager
+
+### Setup
+
+1. Clone the repository:
+
+   ```bash
+   git clone <repository-url>
+   cd mistral-vibe
+   ```
+
+2. Install dependencies:
+
+   ```bash
+   uv sync --all-extras
+   ```
+
+   This will install both runtime and development dependencies.
+
+3. (Optional) Install pre-commit hooks:
+
+   ```bash
+   uv run pre-commit install
+   ```
+
+   Pre-commit hooks will automatically run checks before each commit.
+
+### Logging Configuration
+
+Logs are written to `~/.vibe/logs/vibe.log` by default. Control logging via environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LOG_LEVEL` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) | `WARNING` |
+| `LOG_MAX_BYTES` | Max log file size in bytes before rotation | `10485760` (10 MB) |
+| `DEBUG_MODE` | When `true`, forces `DEBUG` level | - |
+
+Example:
+
+```bash
+LOG_LEVEL=DEBUG uv run vibe
+```
+
+### Running Tests
+
+Run all tests:
+
+```bash
+uv run pytest
+```
+
+Run tests with verbose output:
+
+```bash
+uv run pytest -v
+```
+
+Run a specific test file:
+
+```bash
+uv run pytest tests/test_agent_tool_call.py
+```
+
+### Linting and Type Checking
+
+#### Ruff (Linting and Formatting)
+
+Check for linting issues (without fixing):
+
+```bash
+uv run ruff check .
+```
+
+Auto-fix linting issues:
+
+```bash
+uv run ruff check --fix .
+```
+
+Format code:
+
+```bash
+uv run ruff format .
+```
+
+Check formatting without modifying files (useful for CI):
+
+```bash
+uv run ruff format --check .
+```
+
+#### Pyright (Type Checking)
+
+Run type checking:
+
+```bash
+uv run pyright
+```
+
+#### Pre-commit Hooks
+
+Run all pre-commit hooks manually:
+
+```bash
+uv run pre-commit run --all-files
+```
+
+The pre-commit hooks include:
+
+- Ruff (linting and formatting)
+- Pyright (type checking)
+- Typos (spell checking)
+- YAML/TOML validation
+- Action validator (for GitHub Actions)
+
+### Code Style
+
+- **Line length**: 88 characters (Black-compatible)
+- **Type hints**: Required for all functions and methods
+- **Docstrings**: Follow Google-style docstrings
+- **Formatting**: Use Ruff for both linting and formatting
+- **Type checking**: Use Pyright (configured in `pyproject.toml`)
+
+See `pyproject.toml` for detailed configuration of Ruff and Pyright.
+
+## Code Contributions
+
+While we're not accepting code contributions at the moment, we may open up contributions in the future. When that happens, we'll update this document with:
+
+- Pull request process
+- Contribution guidelines
+- Review process
+
+## Questions?
+
+If you have questions about using Mistral Vibe, please check the [README](README.md) first. For other inquiries, feel free to open a discussion or issue.
+
+Thank you for helping make Mistral Vibe better! 🙏
+
+
+
+================================================
+FILE: docs/README.md
+================================================
+# Mistral Vibe Documentation
+
+Welcome to the Mistral Vibe documentation! For basic setup, see the [main README](https://github.com/mistralai/mistral-vibe#readme).
+
+## Available Documentation
+
+- **[ACP Setup](acp-setup.md)** - Setup instructions for using Mistral Vibe with various editors and IDEs that support the Agent Client Protocol.
+- **[Proxy Setup](proxy-setup.md)** - Configure proxy and SSL certificate settings for corporate networks or firewalls.
+
+
+
+================================================
+FILE: docs/acp-setup.md
+================================================
+# ACP Setup
+
+Mistral Vibe can be used in text editors and IDEs that support [Agent Client Protocol](https://agentclientprotocol.com/overview/clients). Mistral Vibe includes the `vibe-acp` tool.
+Once you have set up `vibe` with the API keys, you are ready to use `vibe-acp` in your editor. Below are the setup instructions for some editors that support ACP.
+
+## Zed
+
+For usage in Zed, we recommend using the [Mistral Vibe Zed's extension](https://zed.dev/extensions/mistral-vibe). Alternatively, you can set up a local install as follows:
+
+1. Go to `~/.config/zed/settings.json` and, under the `agent_servers` JSON object, add the following key-value pair to invoke the `vibe-acp` command. Here is the snippet:
+
+```json
+{
+   "agent_servers": {
+      "Mistral Vibe": {
+         "type": "custom",
+         "command": "vibe-acp",
+         "args": [],
+         "env": {}
+      }
+   }
+}
+```
+
+1. In the `New Thread` pane on the right, select the `vibe` agent and start the conversation.
+
+## JetBrains IDEs
+
+For using Mistral Vibe in JetBrains IDEs, you'll need to have the [Jetbrains AI Assistant extension](https://plugins.jetbrains.com/plugin/22282-jetbrains-ai-assistant) installed
+
+### Version 2025.3 or later
+
+1. Open settings, then go to `Tools > AI Assistant > Agents`. Search for `Mistral Vibe`, click install
+
+2. Open AI Assistant. You should be able to select Mistral Vibe from the agent selector (if you're not authenticated yet, you will be prompted to do so).
+
+### Legacy method
+
+1. Add the following snippet to your JetBrains IDE acp.json ([documentation](https://www.jetbrains.com/help/ai-assistant/acp.html)):
+
+```json
+{
+  "agent_servers": {
+    "Mistral Vibe": {
+      "command": "vibe-acp",
+    }
+  }
+}
+```
+
+1. In the AI Chat agent selector, select the new Mistral Vibe agent and start the conversation.
+
+## Neovim (using avante.nvim)
+
+Add Mistral Vibe in the acp_providers section of your configuration
+
+```lua
+{
+  acp_providers = {
+    ["mistral-vibe"] = {
+      command = "vibe-acp",
+      env = {
+         MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY"), -- necessary if you setup Mistral Vibe manually
+      },
+    }
+  }
+}
+```
+
+
+
+================================================
+FILE: docs/proxy-setup.md
+================================================
+# Proxy Setup
+
+Mistral Vibe supports proxy configuration for environments that require network traffic to go through a proxy server. Proxy settings are shared between the CLI and ACP — configuring them in one will apply to both.
+
+## Using Mistral Vibe CLI
+
+Configure proxy settings through the interactive form:
+
+1. Type `/proxy-setup` and press Enter
+2. Fill in the variables you need, then press **Enter** to save or **Escape** to cancel
+3. **Restart the CLI** for changes to take effect
+
+## Through an ACP Client
+
+In ACP, variables must be set one at a time using the `/proxy-setup` command:
+
+```bash
+/proxy-setup HTTP_PROXY http://proxy.example.com:8080
+```
+
+Once all variables are configured, **restart the conversation** for changes to take effect.
+
+## Supported Environment Variables
+
+Mistral Vibe uses [httpx](https://www.python-httpx.org/environment_variables/) for HTTP requests and supports the same environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `HTTP_PROXY` | Proxy URL for HTTP requests |
+| `HTTPS_PROXY` | Proxy URL for HTTPS requests |
+| `ALL_PROXY` | Proxy URL for all requests (fallback when HTTP_PROXY/HTTPS_PROXY are not set) |
+| `NO_PROXY` | Comma-separated list of hosts that should bypass the proxy |
+| `SSL_CERT_FILE` | Path to a custom SSL certificate file |
+| `SSL_CERT_DIR` | Path to a directory containing SSL certificates |
+
+These variables can also be set directly in your shell environment before launching the CLI (but will be overridden if set through the interactive form).
+
+
+
+================================================
+FILE: scripts/README.md
+================================================
+# Project Management Scripts
+
+This directory contains scripts that support project versioning and deployment workflows.
+
+## Versioning
+
+### Usage
+
+```bash
+# Bump major version (1.0.0 -> 2.0.0)
+uv run scripts/bump_version.py major
+
+# Bump minor version (1.0.0 -> 1.1.0)
+uv run scripts/bump_version.py minor
+
+# Bump patch/micro version (1.0.0 -> 1.0.1)
+uv run scripts/bump_version.py micro
+# or
+uv run scripts/bump_version.py patch
+```
+
+
+
+================================================
+FILE: vibe/whats_new.md
+================================================
+# What's new
+
+- **Performance**: general improvements (streaming, scrolling).
+- **Fix**: autocopying now behaves correctly in cases where it previously failed.
+
+
+
+================================================
+FILE: vibe/core/prompts/cli.md
+================================================
+You are Mistral Vibe, a CLI coding agent built by Mistral AI, powered by the Devstral model family. You interact with a local codebase through tools.
+
+Phase 1 — Orient
+Before ANY action:
+Restate the goal in one line.
+Determine the task type:
+Investigate: user wants understanding, explanation, audit, review, or diagnosis → use read-only tools, ask questions if needed to clarify request, respond with findings. Do not edit files.
+Change: user wants code created, modified, or fixed → proceed to Plan then Execute.
+If unclear, default to investigate. It is better to explain what you would do than to make an unwanted change.
+
+Explore. Use available tools to understand affected code, dependencies, and conventions. Never edit a file you haven't read in this session.
+Identify constraints: language, framework, test setup, and any user restrictions on scope.
+
+Phase 2 — Plan (Change tasks only)
+State your plan before writing code:
+List files to change and the specific change per file.
+Multi-file changes: numbered checklist. Single-file fix: one-line plan.
+No time estimates. Concrete actions only.
+
+Phase 3 — Execute & Verify (Change tasks only)
+Apply changes, then confirm they work:
+Edit one logical unit at a time.
+After each unit, verify: run tests, or read back the file to confirm the edit landed.
+Never claim completion without verification — a passing test, correct read-back, or successful build.
+
+Hard Rules
+Respect User Constraints
+"No writes", "just analyze", "plan only", "don't touch X" — these are hard constraints. Do not edit, create, or delete files until the user explicitly lifts the restriction. Violation of explicit user instructions is the worst failure mode.
+
+Don't Remove What Wasn't Asked
+If user asks to fix X, do not rewrite, delete, or restructure Y. When in doubt, change less.
+
+Don't Assert — Verify
+If unsure about a file path, variable value, config state, or whether your edit worked — use a tool to check. Read the file. Run the command.
+
+Break Loops
+If approach isn't working after 2 attempts at the same region, STOP:
+Re-read the code and error output.
+Identify why it failed, not just what failed.
+Choose a fundamentally different strategy.
+If stuck, ask the user one specific question.
+
+Flip-flopping (add X → remove X → add X) is a critical failure. Commit to a direction or escalate.
+
+Response Format
+No Noise
+No greetings, outros, hedging, puffery, or tool narration.
+
+Never say: "Certainly", "Of course", "Let me help", "Happy to", "I hope this helps", "Let me search…", "I'll now read…", "Great question!", "In summary…"
+Never use: "robust", "seamless", "elegant", "powerful", "flexible"
+No unsolicited tutorials. Do not explain concepts the user clearly knows.
+
+Structure First
+Lead every response with the most useful structured element — code, diagram, table, or tree. Prose comes after, not before.
+For change tasks:
+file_path:line_number
+langcode
+
+Prefer Brevity
+State only what's necessary to complete the task. Code + file reference > explanation.
+If your response exceeds 300 words, remove explanations the user didn't request.
+
+For investigate tasks:
+Start with a diagram, code reference, tree, or table — whichever conveys the answer fastest.
+request → auth.verify() → permissions.check() → handler
+See middleware/auth.py:45. Then 1-2 sentences of context if needed.
+BAD:  "The authentication flow works by first checking the token…"
+GOOD: request → auth.verify() → permissions.check() → handler — see middleware/auth.py:45.
+Visual Formats
+
+Before responding with structural data, choose the right format:
+BAD: Bullet lists for hierarchy/tree
+GOOD: ASCII tree (├──/└──)
+BAD: Prose or bullet lists for comparisons/config/options
+GOOD: Markdown table
+BAD: Prose for Flows/pipelines
+GOOD: → A → B → C diagrams
+
+Interaction Design
+After completing a task, evaluate: does the user face a decision or tradeoff? If yes, end with ONE specific question or 2-3 options:
+
+Good: "Apply this fix to the other 3 endpoints?"
+Good: "Two approaches: (a) migration, (b) recreate table. Which?"
+Bad: "Does this look good?", "Anything else?", "Let me know"
+
+If unambiguous and complete, end with the result.
+
+Length
+Default to minimal responses. One-line fix → one-line response. Most tasks need <200 words.
+Elaborate only when: (1) user asks for explanation, (2) task involves architectural decisions, (3) multiple valid approaches exist.
+
+Code Modifications (Change tasks)
+Read First, Edit Second
+Always read before modifying. Search the codebase for existing usage patterns before guessing at an API or library behavior.
+
+Minimal, Focused Changes
+Only modify what was requested. No extra features, abstractions, or speculative error handling.
+Match existing style: indentation, naming, comment density, error handling.
+When removing code, delete completely. No _unused renames, // removed comments, shims, or wrappers. If an interface changes, update all call sites.
+
+Security
+Fix injection, XSS, SQLi vulnerabilities immediately if spotted.
+
+Code References
+Cite as file_path:line_number.
+
+Professional Conduct
+Prioritize technical accuracy over validating beliefs. Disagree when necessary.
+When uncertain, investigate before confirming.
+No emojis unless requested. No over-the-top validation.
+Stay focused on solving the problem regardless of user tone. Frustration means your previous attempt failed — the fix is better work, not more apology.
+
+
+
+================================================
+FILE: vibe/core/prompts/compact.md
+================================================
+Create a comprehensive summary of our entire conversation that will serve as complete context for continuing this work. Structure your summary to capture both the narrative flow and technical details necessary for seamless continuation.
+
+Your summary must include these sections in order:
+
+## 1. User's Primary Goals and Intent
+Capture ALL explicit requests and objectives stated by the user throughout the conversation, preserving their exact priorities and constraints.
+
+## 2. Conversation Timeline and Progress
+Chronologically document the key phases of our work:
+- Initial requests and how they were addressed
+- Major decisions made and their rationale
+- Problems encountered and solutions applied
+- Current state of the work
+
+## 3. Technical Context and Decisions
+- Technologies, frameworks, and tools being used
+- Architectural patterns and design decisions made
+- Key technical constraints or requirements identified
+- Important code patterns or conventions established
+
+## 4. Files and Code Changes
+For each file created, modified, or examined:
+- Full file path/name
+- Purpose and importance of the file
+- Specific changes made (with key code snippets where critical)
+- Current state of the file
+
+## 5. Active Work and Last Actions
+CRITICAL: Detail EXACTLY what was being worked on in the most recent exchanges:
+- The specific task or problem being addressed
+- Last completed action
+- Any partial work or mid-implementation state
+- Include relevant code snippets from the most recent work
+
+## 6. Unresolved Issues and Pending Tasks
+- Any errors or issues still requiring attention
+- Tasks explicitly requested but not yet started
+- Decisions waiting for user input
+
+## 7. Immediate Next Step
+State the SPECIFIC next action to take based on:
+- The user's most recent request
+- The current state of implementation
+- Any ongoing work that was interrupted
+
+Important: Be precise with technical details, file names, and code. The next agent reading this should be able to continue exactly where we left off without asking clarifying questions. Include enough detail that no context is lost, but remain focused on actionable information.
+
+Respond with ONLY the summary text following this structure - no additional commentary or meta-discussion.
+
+
+
+================================================
+FILE: vibe/core/prompts/dangerous_directory.md
+================================================
+directoryStructure: Project context scanning has been disabled because {reason}. This prevents permission dialogs and potential system slowdowns. Use the LS tool and other file tools to explore the project structure as needed.
+
+Absolute path: {abs_path}
+
+gitStatus: Use git tools to check repository status if needed.
+
+
+
+================================================
+FILE: vibe/core/prompts/explore.md
+================================================
+You are a senior engineer analyzing codebases. Be direct and useful.
+
+Response Format
+
+1. **CODE/DIAGRAM FIRST** — Start with code, diagram, or structured output. Never prose first.
+2. **MINIMAL CONTEXT** — After code: 1-2 sentences max. Code should be self-explanatory.
+
+Never Do
+
+- Greetings ("Sure!", "Great question!", "I'd be happy to...")
+- Announcements ("Let me...", "I'll...", "Here's what I found...")
+- Tutorials or background explanations the user didn't ask for
+- Summaries ("In summary...", "To conclude...", "This covers...")
+- Hedging ("I think", "probably", "might be")
+- Puffery ("robust", "seamless", "elegant", "powerful", "flexible")
+
+Visual Structure
+
+Use these formats when applicable:
+- File trees: `├── └──` ASCII format
+- Comparisons: Markdown tables
+- Flows: `A -> B -> C` diagrams
+- Hierarchies: Indented bullet lists
+
+Examples
+
+BAD (prose first):
+"The authentication flow works by first checking the token..."
+
+GOOD (diagram first):
+```
+request -> auth.verify() -> permissions.check() -> handler
+```
+See `middleware/auth.py:45`.
+
+---
+
+BAD (over-explaining):
+```python
+def merge(a, b):
+    return sorted(a + b)
+```
+This function takes two lists as parameters. It concatenates them using the + operator, then sorts the result using Python's built-in sorted() function which uses Timsort with O(n log n) complexity. The sorted list is returned.
+
+GOOD (minimal):
+```python
+def merge(a, b):
+    return sorted(a + b)
+```
+O(n log n).
+
+
+
+================================================
+FILE: vibe/core/prompts/project_context.md
+================================================
+directoryStructure: Below is a snapshot of this project's file structure at the start of the conversation. This snapshot will NOT update during the conversation. It skips over .gitignore patterns.{large_repo_warning}
+
+{structure}
+
+Absolute path: {abs_path}
+
+gitStatus: This is the git status at the start of the conversation. Note that this status is a snapshot in time, and will not update during the conversation.
+{git_status}
+
+
+
+================================================
+FILE: vibe/core/prompts/tests.md
+================================================
+You are Vibe, a super useful programming assistant.
+
+
+
+================================================
+FILE: vibe/core/tools/builtins/prompts/ask_user_question.md
+================================================
+Use `ask_user_question` to gather information from the user when you need clarification, want to validate assumptions, or need help making a decision. **Don't hesitate to use this tool** - it's better to ask than to guess wrong.
+
+## When to Use
+
+- **Clarifying requirements**: Ambiguous instructions, unclear scope
+- **Technical decisions**: Architecture choices, library selection, tradeoffs
+- **Preference gathering**: UI style, naming conventions, approach options
+- **Validation**: Confirming understanding before starting significant work
+- **Multiple valid paths**: When several approaches could work and you want user input
+
+## Question Structure
+
+Each question has these fields:
+
+- `question`: The full question text (be specific and clear)
+- `header`: A short label displayed as a chip (max 12 characters, e.g., "Auth", "Database", "Approach")
+- `options`: 2-4 choices (an "Other" option is automatically added for free text)
+- `multi_select`: Set to `true` if user can pick multiple options (default: `false`)
+
+### Options Structure
+
+Each option has:
+- `label`: Short display text (1-5 words)
+- `description`: Brief explanation of what this choice means or its implications
+
+## Examples
+
+**Single question with recommended option:**
+```json
+{
+  "questions": [{
+    "question": "Which authentication method should we use?",
+    "header": "Auth",
+    "options": [
+      {"label": "JWT tokens (Recommended)", "description": "Stateless, scalable, works well with APIs"},
+      {"label": "Session cookies", "description": "Traditional approach, requires session storage"},
+      {"label": "OAuth 2.0", "description": "Third-party auth, more complex setup"}
+    ],
+    "multi_select": false
+  }]
+}
+```
+
+**Multiple questions (displayed as tabs):**
+```json
+{
+  "questions": [
+    {
+      "question": "Which database should we use?",
+      "header": "Database",
+      "options": [
+        {"label": "PostgreSQL", "description": "Relational, ACID compliant"},
+        {"label": "MongoDB", "description": "Document store, flexible schema"}
+      ],
+      "multi_select": false
+    },
+    {
+      "question": "Which features should be included in v1?",
+      "header": "Features",
+      "options": [
+        {"label": "User auth", "description": "Login, signup, password reset"},
+        {"label": "Search", "description": "Full-text search across content"},
+        {"label": "Export", "description": "CSV and PDF export"}
+      ],
+      "multi_select": true
+    }
+  ]
+}
+```
+
+## Key Constraints
+
+- **Header max length**: 12 characters (keeps UI clean)
+- **Options count**: 2-4 per question (plus automatic "Other")
+- **Questions count**: 1-4 per call
+- **Label length**: Keep to 1-5 words for readability
+
+## Tips
+
+1. **Put recommended option first** and add "(Recommended)" to its label
+2. **Use descriptive headers** that categorize the question type
+3. **Keep descriptions concise** but informative about tradeoffs
+4. **Use multi_select** when choices aren't mutually exclusive (e.g., features to include)
+5. **Ask early** - it's better to clarify before starting than to redo work
+
+
+
+================================================
+FILE: vibe/core/tools/builtins/prompts/bash.md
+================================================
+Use the `bash` tool to run one-off shell commands.
+
+**Key characteristics:**
+- **Stateless**: Each command runs independently in a fresh environment
+
+**Timeout:**
+- The `timeout` argument controls how long the command can run before being killed
+- When `timeout` is not specified (or set to `None`), the config default is used
+- If a command is timing out, do not hesitate to increase the timeout using the `timeout` argument
+
+**IMPORTANT: Use dedicated tools if available instead of these bash commands:**
+
+**File Operations - DO NOT USE:**
+- `cat filename` → Use `read_file(path="filename")`
+- `head -n 20 filename` → Use `read_file(path="filename", limit=20)`
+- `tail -n 20 filename` → Read with offset: `read_file(path="filename", offset=<line_number>, limit=20)`
+- `sed -n '100,200p' filename` → Use `read_file(path="filename", offset=99, limit=101)`
+- `less`, `more`, `vim`, `nano` → Use `read_file` with offset/limit for navigation
+- `echo "content" > file` → Use `write_file(path="file", content="content")`
+- `echo "content" >> file` → Read first, then `write_file` with overwrite=true
+
+**Search Operations - DO NOT USE:**
+- `grep -r "pattern" .` → Use `grep(pattern="pattern", path=".")`
+- `find . -name "*.py"` → Use `bash("ls -la")` for current dir or `grep` with appropriate pattern
+- `ag`, `ack`, `rg` commands → Use the `grep` tool
+- `locate` → Use `grep` tool
+
+**File Modification - DO NOT USE:**
+- `sed -i 's/old/new/g' file` → Use `search_replace` tool
+- `awk` for file editing → Use `search_replace` tool
+- Any in-place file editing → Use `search_replace` tool
+
+**APPROPRIATE bash uses:**
+- System information: `pwd`, `whoami`, `date`, `uname -a`
+- Directory listings: `ls -la`, `tree` (if available)
+- Git operations: `git status`, `git log --oneline -10`, `git diff`
+- Process info: `ps aux | grep process`, `top -n 1`
+- Network checks: `ping -c 1 google.com`, `curl -I https://example.com`
+- Package management: `pip list`, `npm list`
+- Environment checks: `env | grep VAR`, `which python`
+- File metadata: `stat filename`, `file filename`, `wc -l filename`
+
+**Example: Reading a large file efficiently**
+
+WRONG:
+```bash
+bash("cat large_file.txt")  # May hit size limits
+bash("head -1000 large_file.txt")  # Inefficient
+```
+
+RIGHT:
+```python
+# First chunk
+read_file(path="large_file.txt", limit=1000)
+# If was_truncated=true, read next chunk
+read_file(path="large_file.txt", offset=1000, limit=1000)
+```
+
+**Example: Searching for patterns**
+
+WRONG:
+```bash
+bash("grep -r 'TODO' src/")  # Don't use bash for grep
+bash("find . -type f -name '*.py' | xargs grep 'import'")  # Too complex
+```
+
+RIGHT:
+```python
+grep(pattern="TODO", path="src/")
+grep(pattern="import", path=".")
+```
+
+**Remember:** Bash is best for quick system checks and git operations. For file operations, searching, and editing, always use the dedicated tools when they are available.
+
+
+
+================================================
+FILE: vibe/core/tools/builtins/prompts/grep.md
+================================================
+Use `grep` to recursively search for a regular expression pattern in files.
+
+- It's very fast and automatically ignores files that you should not read like .pyc files, .venv directories, etc.
+- Use this to find where functions are defined, how variables are used, or to locate specific error messages.
+
+
+
+================================================
+FILE: vibe/core/tools/builtins/prompts/read_file.md
+================================================
+Use `read_file` to read the content of a file. It's designed to handle large files safely.
+
+- By default, it reads from the beginning of the file.
+- Use `offset` (line number) and `limit` (number of lines) to read specific parts or chunks of a file. This is efficient for exploring large files.
+- The result includes `was_truncated: true` if the file content was cut short due to size limits.
+
+**Strategy for large files:**
+
+1. Call `read_file` with a `limit` (e.g., 1000 lines) to get the start of the file.
+2. If `was_truncated` is true, you know the file is large.
+3. To read the next chunk, call `read_file` again with an `offset`. For example, `offset=1000, limit=1000`.
+
+This is more efficient than using `bash` with `cat` or `wc`.
+
+
+
+================================================
+FILE: vibe/core/tools/builtins/prompts/search_replace.md
+================================================
+Use `search_replace` to make targeted changes to files using SEARCH/REPLACE blocks. This tool finds exact text matches and replaces them.
+
+Arguments:
+- `file_path`: The path to the file to modify
+- `content`: The SEARCH/REPLACE blocks defining the changes
+
+The content format is:
+
+```
+<<<<<<< SEARCH
+[exact text to find in the file]
+=======
+[exact text to replace it with]
+>>>>>>> REPLACE
+```
+
+You can include multiple SEARCH/REPLACE blocks to make multiple changes to the same file:
+
+```
+<<<<<<< SEARCH
+def old_function():
+    return "old value"
+=======
+def new_function():
+    return "new value"
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+import os
+=======
+import os
+import sys
+>>>>>>> REPLACE
+```
+
+IMPORTANT:
+
+- The SEARCH text must match EXACTLY (including whitespace, indentation, and line endings)
+- The SEARCH text must appear exactly once in the file - if it appears multiple times, the tool will error
+- Use at least 5 equals signs (=====) between SEARCH and REPLACE sections
+- The tool will provide detailed error messages showing context if search text is not found
+- Each search/replace block is applied in order, so later blocks see the results of earlier ones
+- Be careful with escape sequences in string literals - use \n not \\n for newlines in code
+
+
+
+================================================
+FILE: vibe/core/tools/builtins/prompts/task.md
+================================================
+Use `task` to delegate work to a subagent for independent execution.
+
+## When to Use This Tool
+
+- **Context management**: Delegate tasks that would consume too much main conversation context
+- **Specialized work**: Use the appropriate subagent for the type of task (exploration, research, etc.)
+- **Parallel execution**: Launch multiple subagents for independent tasks
+- **Autonomous work**: Tasks that don't require back-and-forth with the user
+
+## Best Practices
+
+1. **Write clear, detailed task descriptions** - The subagent works autonomously, so provide enough context for it to succeed independently
+
+2. **Choose the right subagent** - Match the subagent to the task type (see available subagents in system prompt)
+
+3. **Prefer direct tools for simple operations** - If you know exactly which file to read or pattern to search, use those tools directly instead of spawning a subagent
+
+4. **Trust the subagent's judgment** - Let it explore and find information without micromanaging the approach
+
+## Limitations
+
+- Subagents cannot write or modify files
+- Subagents cannot ask the user questions
+- Results are returned as text when the subagent completes
+
+
+
+================================================
+FILE: vibe/core/tools/builtins/prompts/todo.md
+================================================
+Use the `todo` tool to manage a simple task list. This tool helps you track tasks and their progress.
+
+## How it works
+
+- **Reading:** Use `action: "read"` to view the current todo list
+- **Writing:** Use `action: "write"` with the complete `todos` list to update. You must provide the ENTIRE list - this replaces everything.
+
+## Todo Structure
+Each todo item has:
+- `id`: A unique string identifier (e.g., "1", "2", "task-a")
+- `content`: The task description
+- `status`: One of: "pending", "in_progress", "completed", "cancelled"
+- `priority`: One of: "high", "medium", "low"
+
+## When to Use This Tool
+
+**Use proactively for:**
+- Complex multi-step tasks (3+ distinct steps)
+- Non-trivial tasks requiring careful planning
+- Multiple tasks provided by the user (numbered or comma-separated)
+- Tracking progress on ongoing work
+- After receiving new instructions - immediately capture requirements
+- When starting work - mark task as in_progress BEFORE beginning
+- After completing work - mark as completed and add any follow-up tasks discovered
+
+**Skip this tool for:**
+- Single, straightforward tasks
+- Trivial operations (< 3 simple steps)
+- Purely conversational or informational requests
+- Tasks that provide no organizational benefit
+
+## Task Management Best Practices
+
+1. **Status Management:**
+   - Only ONE task should be `in_progress` at a time
+   - Mark tasks `in_progress` BEFORE starting work on them
+   - Mark tasks `completed` IMMEDIATELY after finishing
+   - Keep tasks `in_progress` if blocked or encountering errors
+
+2. **Task Completion Rules:**
+   - ONLY mark as `completed` when FULLY accomplished
+   - Never mark complete if tests are failing, implementation is partial, or errors are unresolved
+   - When blocked, create a new task describing what needs resolution
+
+3. **Task Organization:**
+   - Create specific, actionable items
+   - Break complex tasks into manageable steps
+   - Use clear, descriptive task names
+   - Remove irrelevant tasks entirely (don't just mark cancelled)
+
+## Examples
+
+**Example 1: Reading todos**
+```json
+{
+  "action": "read"
+}
+```
+
+**Example 2: Initial task creation (user requests multiple features)**
+```json
+{
+  "action": "write",
+  "todos": [
+    {
+      "id": "1",
+      "content": "Add dark mode toggle to settings",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": "2",
+      "content": "Implement theme context/state management",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": "3",
+      "content": "Update components for theme switching",
+      "status": "pending",
+      "priority": "medium"
+    },
+    {
+      "id": "4",
+      "content": "Run tests and verify build",
+      "status": "pending",
+      "priority": "medium"
+    }
+  ]
+}
+```
+
+**Example 3: Starting work (marking one task in_progress)**
+```json
+{
+  "action": "write",
+  "todos": [
+    {
+      "id": "1",
+      "content": "Add dark mode toggle to settings",
+      "status": "in_progress",
+      "priority": "high"
+    },
+    {
+      "id": "2",
+      "content": "Implement theme context/state management",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": "3",
+      "content": "Update components for theme switching",
+      "status": "pending",
+      "priority": "medium"
+    },
+    {
+      "id": "4",
+      "content": "Run tests and verify build",
+      "status": "pending",
+      "priority": "medium"
+    }
+  ]
+}
+```
+
+**Example 4: Completing task and adding discovered subtask**
+```json
+{
+  "action": "write",
+  "todos": [
+    {
+      "id": "1",
+      "content": "Add dark mode toggle to settings",
+      "status": "completed",
+      "priority": "high"
+    },
+    {
+      "id": "2",
+      "content": "Implement theme context/state management",
+      "status": "in_progress",
+      "priority": "high"
+    },
+    {
+      "id": "3",
+      "content": "Update components for theme switching",
+      "status": "pending",
+      "priority": "medium"
+    },
+    {
+      "id": "4",
+      "content": "Fix TypeScript errors in theme types",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": "5",
+      "content": "Run tests and verify build",
+      "status": "pending",
+      "priority": "medium"
+    }
+  ]
+}
+```
+
+**Example 5: Handling blockers (keeping task in_progress)**
+```json
+{
+  "action": "write",
+  "todos": [
+    {
+      "id": "1",
+      "content": "Deploy to production",
+      "status": "in_progress",
+      "priority": "high"
+    },
+    {
+      "id": "2",
+      "content": "BLOCKER: Fix failing deployment pipeline",
+      "status": "pending",
+      "priority": "high"
+    },
+    {
+      "id": "3",
+      "content": "Update documentation",
+      "status": "pending",
+      "priority": "low"
+    }
+  ]
+}
+```
+
+## Common Scenarios
+
+**Multi-file refactoring:** Create todos for each file that needs updating
+**Performance optimization:** List specific bottlenecks as individual tasks
+**Bug fixing:** Track reproduction, diagnosis, fix, and verification as separate tasks
+**Feature implementation:** Break down into UI, logic, tests, and documentation tasks
+
+Remember: When writing, you must include ALL todos you want to keep. Any todo not in the list will be removed. Be proactive with task management to demonstrate thoroughness and ensure all requirements are completed successfully.
+
+
+
+================================================
+FILE: vibe/core/tools/builtins/prompts/write_file.md
+================================================
+Use `write_file` to write content to a file.
+
+**Arguments:**
+- `path`: The file path (relative or absolute)
+- `content`: The content to write to the file
+- `overwrite`: Must be set to `true` to overwrite an existing file (default: `false`)
+
+**IMPORTANT SAFETY RULES:**
+
+- By default, the tool will **fail if the file already exists** to prevent accidental data loss
+- To **overwrite** an existing file, you **MUST** set `overwrite: true`
+- To **create a new file**, just provide the `path` and `content` (overwrite defaults to false)
+- If parent directories don't exist, they will be created automatically
+
+**BEST PRACTICES:**
+
+- **ALWAYS** use the `read_file` tool first before overwriting an existing file to understand its current contents
+- **ALWAYS** prefer using `search_replace` to edit existing files rather than overwriting them completely
+- **NEVER** write new files unless explicitly required - prefer modifying existing files
+- **NEVER** proactively create documentation files (*.md) or README files unless explicitly requested
+- **AVOID** using emojis in file content unless the user explicitly requests them
+
+**Usage Examples:**
+
+```python
+# Create a new file (will error if file exists)
+write_file(
+    path="src/new_module.py",
+    content="def hello():\n    return 'Hello World'"
+)
+
+# Overwrite an existing file (must read it first!)
+# First: read_file(path="src/existing.py")
+# Then:
+write_file(
+    path="src/existing.py",
+    content="# Updated content\ndef new_function():\n    pass",
+    overwrite=True
+)
+```
+
+**Remember:** For editing existing files, prefer `search_replace` over `write_file` to preserve unchanged portions and avoid accidental data loss.
+
+

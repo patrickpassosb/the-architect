@@ -1,0 +1,9 @@
+
+Rules
+All projects must be built during the hackathon timeframe.
+Teams must consist of 1 to 4 participants.
+Use of open-source libraries, APIs, and pre-trained models is allowed, provided they are properly credited.
+All code and demos must be submitted before the final deadline to be eligible for judging.
+Projects must comply with applicable laws, ethical AI practices, and the hackathon’s code of conduct.
+Mistral, partner, and sponsor APIs must be used in accordance with their respective terms of service.
+The organizing team reserves the right to disqualify any team that violates the rules or engages in unfair practices.

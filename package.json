@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "build": "npm run --workspaces build",
-    "dev": "echo 'Run each workspace dev script in separate terminals: npm run redis:up, npm run dev:api, npm run dev:worker'",
+    "dev": "npm run dev:all",
     "dev:all": "bash scripts/dev-all.sh",
     "dev:api": "npm run dev -w apps/api",
     "dev:worker": "npm run dev -w apps/worker",
@@ -19,6 +19,8 @@
     "redis:up": "docker compose -f infra/docker-compose.yml up -d redis",
     "redis:down": "docker compose -f infra/docker-compose.yml down",
     "test:integration": "node tests/integration.mjs",
-    "workflow:docker-loop": "bash scripts/agent-docker-loop.sh"
+    "workflow:docker-loop": "bash scripts/agent-docker-loop.sh",
+    "test:smoke": "REQUIRE_PROVIDER_SUCCESS=1 node tests/integration.mjs",
+    "test:smoke:loop": "bash scripts/smoke-loop.sh"
   }
 }
