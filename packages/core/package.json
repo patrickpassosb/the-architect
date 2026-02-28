@@ -1,0 +1,30 @@
+{
+  "name": "@the-architect/core",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "npm run build -w @the-architect/shared-types && tsc -p tsconfig.json",
+    "typecheck": "npm run build -w @the-architect/shared-types && tsc -p tsconfig.json --noEmit",
+    "lint": "echo 'No lint configured for core'",
+    "test": "echo 'No tests configured for core'"
+  },
+  "dependencies": {
+    "@the-architect/shared-types": "0.1.0",
+    "bullmq": "^5.46.1",
+    "ioredis": "^5.4.2",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "@types/node": "^22.13.10"
+  }
+}

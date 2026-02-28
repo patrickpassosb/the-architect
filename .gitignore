@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+coverage/
+out/
+.next/
+apps/*/.next/
+packages/*/dist/
+apps/*/dist/
+*.tsbuildinfo
+
+# Runtime data
+.tmp/
+tmp/
+data/
+apps/*/data/
+*.log
+npm-debug.log*
+
+# Environment files (keep examples)
+.env
+.env.*
+!.env.example
+!apps/web/.env.example
+
+# SQLite artifacts
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# OS/editor noise
+.DS_Store

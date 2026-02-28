@@ -1,0 +1,27 @@
+{
+  "name": "@the-architect/api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "npm run build -w @the-architect/shared-types && npm run build -w @the-architect/core && tsc -p tsconfig.json",
+    "dev": "npm run build -w @the-architect/shared-types && npm run build -w @the-architect/core && tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "npm run build -w @the-architect/shared-types && npm run build -w @the-architect/core && tsc -p tsconfig.json --noEmit",
+    "lint": "echo 'No lint configured for api'",
+    "test": "echo 'No tests configured for api'"
+  },
+  "dependencies": {
+    "@the-architect/core": "0.1.0",
+    "@the-architect/shared-types": "0.1.0",
+    "bullmq": "^5.46.1",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "ioredis": "^5.4.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "@types/node": "^22.13.10"
+  }
+}

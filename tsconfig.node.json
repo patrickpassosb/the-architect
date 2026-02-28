@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@the-architect/shared-types": ["packages/shared-types/dist/index.d.ts"],
+      "@the-architect/core": ["packages/core/dist/index.d.ts"]
+    },
+    "incremental": false,
+    "noEmit": false,
+    "declaration": true,
+    "sourceMap": true
+  }
+}

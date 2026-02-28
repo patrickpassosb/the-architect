@@ -1,0 +1,290 @@
+:root {
+  --bg: #f4f5ef;
+  --panel: #fefcf7;
+  --text: #1f2d2b;
+  --muted: #5c6a67;
+  --accent: #00684a;
+  --accent-strong: #004934;
+  --warn: #c98200;
+  --danger: #b42318;
+  --border: #d9ddcf;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 20% 0%, #fff6de 0%, transparent 35%),
+    radial-gradient(circle at 90% 20%, #d9f7ef 0%, transparent 35%),
+    var(--bg);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+p {
+  margin: 0;
+}
+
+.shell {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 1.25rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.topbar {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 1rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.topbar p {
+  color: var(--muted);
+}
+
+.topbar-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.column {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.card {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.row.spaced {
+  justify-content: space-between;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.field.compact {
+  width: 170px;
+}
+
+textarea,
+select,
+.button,
+.artifact-button {
+  font: inherit;
+}
+
+textarea,
+select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.65rem;
+  background: white;
+  color: var(--text);
+}
+
+textarea {
+  resize: vertical;
+}
+
+.button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.button-primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.button-primary:hover:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.button-danger {
+  background: var(--danger);
+  color: white;
+  border-color: var(--danger);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.status {
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid transparent;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.status-warning {
+  background: #fff4db;
+  border-color: #f4cf84;
+}
+
+.status-error {
+  background: #ffe6e3;
+  border-color: #f7b4ab;
+}
+
+.status-inline {
+  border-radius: 10px;
+  padding: 0.5rem 0.65rem;
+}
+
+.assistant-response {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.assistant-response ol {
+  margin: 0.35rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.artifact-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.artifact-button {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  padding: 0.6rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  text-align: left;
+  gap: 0.75rem;
+}
+
+.artifact-button small {
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.artifact-button:hover {
+  border-color: var(--accent);
+}
+
+.artifact-detail {
+  min-height: 420px;
+}
+
+.markdown-frame {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  padding: 0.75rem;
+  overflow: auto;
+  max-height: 260px;
+}
+
+.markdown-frame > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-frame > *:last-child {
+  margin-bottom: 0;
+}
+
+.json-block {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.json-block pre {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #13211f;
+  color: #eaf8f5;
+  padding: 0.75rem;
+  overflow: auto;
+  max-height: 240px;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 980px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .field.compact {
+    width: 100%;
+  }
+}
