@@ -17,7 +17,9 @@ import {
   Play,
   Volume2,
   Loader2,
-  Sparkles
+  Sparkles,
+  Mic,
+  Square
 } from "lucide-react";
 import {
   ApiError,
@@ -39,24 +41,24 @@ const sidebarItems: Array<{
   panel: WorkspacePanel;
   icon: React.ComponentType<{ className?: string; size?: number }>;
 }> = [
-  { name: "Chat", panel: "chat", icon: MessageSquare },
-  { name: "Architecture", panel: "architecture", icon: LayoutDashboard },
-  { name: "Build with Vibe", panel: "build", icon: Hammer }
-];
+    { name: "Chat", panel: "chat", icon: MessageSquare },
+    { name: "Architecture", panel: "architecture", icon: LayoutDashboard },
+    { name: "Build with Vibe", panel: "build", icon: Hammer }
+  ];
 
 type ThreadMessage =
   | {
-      id: string;
-      role: "user";
-      source: Source;
-      content: string;
-    }
+    id: string;
+    role: "user";
+    source: Source;
+    content: string;
+  }
   | {
-      id: string;
-      role: "assistant";
-      source: Source;
-      content: AssistantResponse;
-    };
+    id: string;
+    role: "assistant";
+    source: Source;
+    content: AssistantResponse;
+  };
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -515,28 +517,30 @@ export default function HomePage() {
         </aside>
 
         <section className="chat-shell">
-          <header className="chat-header">
-            <div className="heading-group">
-              <h1>Focus, Decide, Ship</h1>
-              <p className="muted">Voice-first planning, architecture, and build execution.</p>
-            </div>
-
-            <div className="topbar-actions">
-              <label className="field compact" htmlFor="mode-select">
-                Mode
+          <header className="chat-header" style={{ paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'flex-end' }}>
+            <div className="topbar-actions" style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
+              <label htmlFor="mode-select" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)' }}>
+                Mode:
                 <select
                   id="mode-select"
                   value={mode}
                   onChange={(event) => setMode(event.target.value as Mode)}
                   disabled={sessionLoading || isSending || buildLoading}
+                  style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '0.3rem 0.6rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
                 >
                   <option value="architect">Architect</option>
                   <option value="planner">Planner</option>
                   <option value="pitch">Pitch</option>
                 </select>
               </label>
-              <button className="button button-primary" onClick={() => void createNewSession()} disabled={sessionLoading || isSending || buildLoading}>
-                {sessionLoading ? "Creating..." : "New Session"}
+
+              <button
+                className="button button-primary"
+                onClick={() => void createNewSession()}
+                disabled={sessionLoading || isSending || buildLoading}
+                style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)', border: '1px solid rgba(255,255,255,0.1)' }}
+              >
+                {sessionLoading ? "Creating..." : "New session"}
               </button>
             </div>
           </header>
@@ -564,15 +568,8 @@ export default function HomePage() {
 
           {activePanel === "chat" && (
             <>
-              <section className="conversation panel">
+              <section className="conversation" style={{ padding: 0, margin: 0, border: 'none', background: 'transparent', boxShadow: 'none' }}>
                 <div className="message-stack">
-                  {thread.length === 0 && (
-                    <article className="message message-assistant message-empty">
-                      <p className="message-meta">Assistant</p>
-                      <p className="muted">No response yet. Send voice or text to start the conversation.</p>
-                    </article>
-                  )}
-
                   {thread.map((message) => {
                     if (message.role === "user") {
                       return (
@@ -641,130 +638,105 @@ export default function HomePage() {
                 </div>
               </section>
 
-              <section className="composer panel">
-                <label className="field" htmlFor="text-message">
-                  Message
+              {thread.length === 0 && (
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                  {[
+                    "Design a scalable microservices architecture for an e-commerce platform.",
+                    "Define a serverless backend using AWS Lambda and API Gateway.",
+                    "Plan an AI-powered data pipeline with real-time streaming."
+                  ].map((suggestion, index) => (
+                    <button
+                      key={index}
+                      onClick={() => void send("text", suggestion)}
+                      disabled={!sessionId || isSending}
+                      style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        color: 'rgba(255,255,255,0.8)',
+                        padding: '0.5rem 1rem',
+                        borderRadius: '16px',
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                      }}
+                      onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)' }}
+                      onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <section className="composer panel" style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderRadius: '20px', background: 'rgba(15,20,30,0.6)', border: '1px solid rgba(255,255,255,0.1)', marginTop: 'auto' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                  {(voice.isRecording || voice.fullTranscript) && (
+                    <div style={{ fontSize: '0.85rem', color: '#8fb3df', background: 'rgba(14,25,45,0.6)', padding: '0.5rem 1rem', borderRadius: '8px', marginBottom: '0.5rem', border: '1px solid rgba(123,177,245,0.2)' }}>
+                      <span style={{ fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem', marginRight: '0.25rem' }}>Transcript:</span>
+                      {voice.fullTranscript || <span style={{ opacity: 0.5 }}>Listening...</span>}
+                    </div>
+                  )}
+
                   <textarea
                     id="text-message"
                     value={draftMessage}
                     onChange={(event) => setDraftMessage(event.target.value)}
-                    placeholder="Ask for architecture, decisions, or execution plan"
-                    rows={3}
+                    placeholder="Message (↵ to send, Shift+↵ for line breaks...)"
+                    rows={1}
                     disabled={!sessionId || isSending}
-                  />
-                </label>
-
-                <div className="composer-footer">
-                  <p className="session-pill" title={sessionId ?? "not created"}>
-                    Session: <code>{formatSessionId(sessionId)}</code>
-                  </p>
-                  <button
-                    className="button button-accent"
-                    disabled={!sessionId || !draftMessage.trim() || isSending}
-                    onClick={() => void send("text", draftMessage)}
-                  >
-                    {isSending ? "Sending..." : "Send Text"}
-                  </button>
-                </div>
-
-                <div className="voice-tools">
-                  <div className="row">
-                    <button
-                      className={`button ${voice.isRecording ? "button-danger" : "button-primary"}`}
-                      onClick={() => {
-                        if (voice.isRecording) {
-                          voice.stopRecording();
-                          return;
+                    style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.95rem', resize: 'none', outline: 'none', minHeight: '44px', padding: '0.5rem 0' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        if (draftMessage.trim() || voice.fullTranscript.trim()) {
+                          if (voice.fullTranscript.trim() && !draftMessage.trim()) {
+                            void send("voice", voice.fullTranscript);
+                          } else {
+                            void send("text", draftMessage);
+                          }
                         }
-                        void voice.startRecording();
-                      }}
-                      disabled={!sessionId || isSending}
-                    >
-                      {voice.isRecording ? "Stop Recording" : "Start Recording"}
-                    </button>
-                    <button className="button" onClick={voice.clearTranscript} disabled={!voice.fullTranscript || isSending}>
-                      Clear
-                    </button>
+                      }
+                    }}
+                  />
+
+                  <div className="composer-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="composer-actions-left" style={{ display: 'flex', gap: '0.5rem' }}>
+                      {voice.isRecording ? (
+                        <button style={{ background: '#f45e52', color: '#fff', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={voice.stopRecording} aria-label="Stop Recording">
+                          <Square size={14} fill="currentColor" />
+                        </button>
+                      ) : (
+                        <button style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={() => void voice.startRecording()} disabled={!sessionId || isSending} aria-label="Use Voice">
+                          <Mic size={16} />
+                        </button>
+                      )}
+
+                      {voice.fullTranscript && (
+                        <button style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)', border: 'none', fontSize: '0.8rem', cursor: 'pointer' }} onClick={voice.clearTranscript} disabled={isSending}>
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
                     <button
-                      className="button button-accent"
-                      onClick={() => void send("voice", voice.fullTranscript)}
-                      disabled={!sessionId || !voice.fullTranscript.trim() || isSending}
+                      style={{ background: '#f45e52', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '12px', display: 'flex', gap: '0.4rem', alignItems: 'center', fontWeight: '600', fontSize: '0.9rem', cursor: 'pointer', opacity: (!sessionId || (!draftMessage.trim() && !voice.fullTranscript.trim()) || isSending) ? 0.5 : 1 }}
+                      disabled={!sessionId || (!draftMessage.trim() && !voice.fullTranscript.trim()) || isSending}
+                      onClick={() => {
+                        if (voice.fullTranscript.trim() && !draftMessage.trim()) {
+                          void send("voice", voice.fullTranscript);
+                        } else {
+                          void send("text", draftMessage);
+                        }
+                      }}
                     >
-                      {isSending ? "Sending..." : "Send Voice"}
+                      {isSending ? <Loader2 size={14} className="spin" /> : null}
+                      Send
                     </button>
                   </div>
-                  <label className="field" htmlFor="voice-transcript">
-                    Voice Transcript
-                    <textarea
-                      id="voice-transcript"
-                      value={voice.fullTranscript}
-                      readOnly
-                      placeholder="Transcript appears here while recording"
-                      rows={3}
-                    />
-                  </label>
                 </div>
               </section>
 
-              <section className="artifact-shell panel">
-                <div className="row spaced">
-                  <h2>Artifacts</h2>
-                  <button
-                    className="button"
-                    onClick={() => sessionId && void loadArtifacts(sessionId)}
-                    disabled={!sessionId || artifactsLoading || isSending}
-                  >
-                    {artifactsLoading ? "Refreshing..." : "Refresh"}
-                  </button>
-                </div>
 
-                {artifactsError && <p className="status-inline status-error">{artifactsError}</p>}
-
-                <div className="artifact-grid">
-                  <ul className="artifact-list">
-                    {!sessionId && <li className="muted">Create a session to load artifacts.</li>}
-                    {sessionId && !artifactsLoading && artifacts.length === 0 && <li className="muted">No artifacts yet for this session.</li>}
-                    {artifacts.map((artifact) => {
-                      const isActive = selectedArtifact?.id === artifact.id;
-
-                      return (
-                        <li key={artifact.id}>
-                          <button
-                            className={`artifact-button ${isActive ? "artifact-button-active" : ""}`}
-                            onClick={() => void openArtifact(artifact.id)}
-                            aria-pressed={isActive}
-                          >
-                            <span className="artifact-title">{artifact.title}</span>
-                            <small>{artifact.kind}</small>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-
-                  <article className="detail">
-                    <h3>Artifact Detail</h3>
-                    {artifactLoading && <p className="muted">Loading artifact...</p>}
-                    {artifactError && <p className="status-inline status-error">{artifactError}</p>}
-                    {!artifactLoading && !selectedArtifact && <p className="muted">Select an artifact to inspect markdown and JSON.</p>}
-
-                    {selectedArtifact && !artifactLoading && (
-                      <>
-                        <p className="muted detail-meta">
-                          {selectedArtifact.title ?? "Untitled"} ({selectedArtifact.kind})
-                        </p>
-                        <div className="markdown-frame">
-                          <ReactMarkdown>{selectedArtifact.content_md || "_No markdown content_"}</ReactMarkdown>
-                        </div>
-                        <div className="json-block">
-                          <h4>JSON Payload</h4>
-                          <pre>{prettyJson ?? "No JSON payload returned for this artifact."}</pre>
-                        </div>
-                      </>
-                    )}
-                  </article>
-                </div>
-              </section>
             </>
           )}
 
