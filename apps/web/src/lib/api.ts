@@ -3,14 +3,22 @@ import {
   createSessionRequestSchema,
   createSessionResponseSchema,
   listArtifactsResponseSchema,
+  runBuildRequestSchema,
+  runBuildResponseSchema,
   sendMessageRequestSchema,
   sendMessageResponseSchema,
+  synthesizeVoiceRequestSchema,
+  synthesizeVoiceResponseSchema,
   type ArtifactDetail,
   type ArtifactListItem,
   type CreateSessionRequest,
   type CreateSessionResponse,
+  type RunBuildRequest,
+  type RunBuildResponse,
   type SendMessageRequest,
-  type SendMessageResponse
+  type SendMessageResponse,
+  type SynthesizeVoiceRequest,
+  type SynthesizeVoiceResponse
 } from "@the-architect/shared-types";
 import { z } from "zod";
 
@@ -117,4 +125,33 @@ export async function getArtifacts(sessionId: string): Promise<ArtifactListItem[
 
 export async function getArtifact(artifactId: string): Promise<ArtifactDetail> {
   return requestJson(`/api/artifacts/${artifactId}`, { method: "GET" }, artifactDetailSchema);
+}
+
+export async function synthesizeVoice(
+  payload: SynthesizeVoiceRequest
+): Promise<SynthesizeVoiceResponse> {
+  const parsed = synthesizeVoiceRequestSchema.parse(payload);
+  return requestJson(
+    "/api/voice/synthesize",
+    {
+      method: "POST",
+      body: JSON.stringify(parsed)
+    },
+    synthesizeVoiceResponseSchema
+  );
+}
+
+export async function runBuildWithVibe(
+  sessionId: string,
+  payload: RunBuildRequest
+): Promise<RunBuildResponse> {
+  const parsed = runBuildRequestSchema.parse(payload);
+  return requestJson(
+    `/api/sessions/${sessionId}/build`,
+    {
+      method: "POST",
+      body: JSON.stringify(parsed)
+    },
+    runBuildResponseSchema
+  );
 }

@@ -139,6 +139,8 @@ npm run dev -w apps/web
 Voice notes:
 - Use a Chromium-based browser for best Web Speech API support.
 - The browser will prompt for microphone permission on first recording attempt.
+- To enable voice output, set `ELEVENLABS_API_KEY` in `.env`.
+- To enable automated build execution, install Mistral Vibe CLI (`vibe`) on the host running the API.
 
 ## Queue + Worker (Agent C MVP)
 - Queue contracts: [docs/QUEUE.md](docs/QUEUE.md)

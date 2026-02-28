@@ -18,6 +18,10 @@ flowchart LR
   W -->|POST /api/sessions/:id/messages| A
   W -->|GET artifacts| A
   A -->|chat/completions| M[Mistral API]
+  A -->|text-to-speech| E[ElevenLabs API]
+  W -->|POST /api/voice/synthesize| A
+  W -->|POST /api/sessions/:id/build| A
+  A -->|vibe -p <prompt>| V[Mistral Vibe CLI]
   A -->|enqueue artifact_generation| Q[(Redis + BullMQ)]
   Q --> WK[Worker\napps/worker]
   A --> DB[(SQLite)]
@@ -37,6 +41,8 @@ flowchart LR
 - Session management
 - Message intake endpoint
 - Mistral orchestration + schema validation
+- ElevenLabs synthesis endpoint for assistant voice output
+- Build orchestration endpoint that executes Mistral Vibe CLI
 - Queue producer for artifact generation jobs
 
 ### 3) Worker Service (`apps/worker`)

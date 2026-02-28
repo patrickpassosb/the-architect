@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
@@ -27,8 +28,12 @@ const {
   createSessionResponseSchema,
   healthResponseSchema,
   listArtifactsResponseSchema,
+  runBuildRequestSchema,
+  runBuildResponseSchema,
   sendMessageRequestSchema,
   sendMessageResponseSchema,
+  synthesizeVoiceRequestSchema,
+  synthesizeVoiceResponseSchema,
   sessionIdParamsSchema
 } = sharedTypes;
 
@@ -90,7 +95,10 @@ const env = {
   mistralApiKey: process.env.MISTRAL_API_KEY ?? "",
   mistralModel: process.env.MISTRAL_MODEL ?? "mistral-large-latest",
   mistralApiUrl:
-    process.env.MISTRAL_API_URL ?? "https://api.mistral.ai/v1/chat/completions"
+    process.env.MISTRAL_API_URL ?? "https://api.mistral.ai/v1/chat/completions",
+  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY ?? "",
+  elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID ?? "JBFqnCBsd6RMkjVDRZzb",
+  elevenLabsModelId: process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2"
 };
 
 if (!Number.isFinite(env.port) || env.port <= 0) {
@@ -176,6 +184,99 @@ function isRedisConnectivityError(error: Error): boolean {
   );
 }
 
+type CommandResult = {
+  exitCode: number | null;
+  timedOut: boolean;
+  output: string;
+};
+
+async function runCommand(
+  binary: string,
+  args: string[],
+  options: { cwd: string; timeoutMs: number }
+): Promise<CommandResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(binary, args, {
+      cwd: options.cwd,
+      env: process.env
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+
+    const timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      setTimeout(() => {
+        if (!child.killed) {
+          child.kill("SIGKILL");
+        }
+      }, 2_000).unref();
+    }, options.timeoutMs);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    child.on("error", (error) => {
+      clearTimeout(timeoutHandle);
+      reject(error);
+    });
+
+    child.on("close", (exitCode) => {
+      clearTimeout(timeoutHandle);
+      const joined = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n\n");
+      const maxLength = 30_000;
+      const output = joined.length > maxLength ? joined.slice(-maxLength) : joined;
+      resolve({
+        exitCode,
+        timedOut,
+        output
+      });
+    });
+  });
+}
+
+function buildVibePrompt(input: {
+  sessionId: string;
+  mode: Mode;
+  goal?: string;
+  context?: string;
+}): string {
+  const goal =
+    input.goal?.trim() ||
+    "Create or improve this project implementation based on the current architecture decisions.";
+
+  return [
+    "You are helping implement a hackathon MVP in this repository.",
+    `Session ID: ${input.sessionId}`,
+    `Mode: ${input.mode}`,
+    `Goal: ${goal}`,
+    input.context?.trim() ? `Context:\n${input.context.trim()}` : "",
+    "Constraints:",
+    "- Work only inside this repository.",
+    "- Keep changes minimal and focused on demo reliability.",
+    "- Prefer code that is easy to demo in under 2 minutes.",
+    "- End with a short summary of files changed and commands to run."
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function parseAssistantContent(raw: string): AssistantResponse | null {
+  try {
+    const value = JSON.parse(raw);
+    return sharedTypes.assistantResponseSchema.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 async function start(): Promise<void> {
   const app = Fastify({ logger: true });
   const db = await openDatabase(env.databaseUrl);
@@ -238,6 +339,52 @@ async function start(): Promise<void> {
       status: "ok",
       service: "api",
       timestamp: new Date().toISOString()
+    });
+
+    return reply.status(200).send(payload);
+  });
+
+  app.post("/api/voice/synthesize", async (request, reply) => {
+    const body = synthesizeVoiceRequestSchema.parse(request.body);
+
+    if (!env.elevenLabsApiKey) {
+      return reply.status(500).send({
+        error: "ELEVENLABS_API_KEY is not configured"
+      });
+    }
+
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${env.elevenLabsVoiceId}`,
+      {
+        method: "POST",
+        headers: {
+          "xi-api-key": env.elevenLabsApiKey,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg"
+        },
+        body: JSON.stringify({
+          text: body.text,
+          model_id: env.elevenLabsModelId,
+          voice_settings: {
+            stability: 0.35,
+            similarity_boost: 0.7
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      return reply.status(502).send({
+        error: `ElevenLabs API ${response.status}: ${errorBody.slice(0, 300)}`
+      });
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const payload = synthesizeVoiceResponseSchema.parse({
+      provider: "elevenlabs",
+      content_type: response.headers.get("content-type") ?? "audio/mpeg",
+      audio_base64: buffer.toString("base64")
     });
 
     return reply.status(200).send(payload);
@@ -371,6 +518,99 @@ async function start(): Promise<void> {
     const payload = sendMessageResponseSchema.parse({
       assistant,
       queued_jobs: queuedJobs
+    });
+
+    return reply.status(200).send(payload);
+  });
+
+  app.post("/api/sessions/:id/build", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const body = runBuildRequestSchema.parse(request.body ?? {});
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    const latestAssistant = await db.get<{ content: string }>(
+      `SELECT content
+       FROM messages
+       WHERE session_id = ? AND role = 'assistant'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      session.id
+    );
+
+    const latestArchitecture = await db.get<{ content_md: string }>(
+      `SELECT content_md
+       FROM artifacts
+       WHERE session_id = ? AND kind = 'architecture'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      session.id
+    );
+
+    const parsedAssistant = latestAssistant ? parseAssistantContent(latestAssistant.content) : null;
+    const contextParts = [
+      body.context?.trim() ?? "",
+      parsedAssistant
+        ? `Latest assistant response:\nSummary: ${parsedAssistant.summary}\nDecision: ${parsedAssistant.decision}\nNext actions: ${parsedAssistant.next_actions.join("; ")}`
+        : "",
+      latestArchitecture?.content_md
+        ? `Latest architecture artifact:\n${latestArchitecture.content_md.slice(0, 6_000)}`
+        : ""
+    ].filter(Boolean);
+
+    const prompt = buildVibePrompt({
+      sessionId: session.id,
+      mode: session.mode,
+      goal: body.goal,
+      context: contextParts.join("\n\n")
+    });
+
+    const repoRoot = findRepoRoot(process.cwd());
+    const commandArgs = ["--workdir", repoRoot, "-p", prompt, "--max-turns", body.dry_run ? "4" : "10", "--output", "text"];
+    if (body.dry_run) {
+      commandArgs.push("--agent", "plan");
+    }
+
+    const startedAt = Date.now();
+
+    let commandResult: CommandResult;
+    try {
+      commandResult = await runCommand("vibe", commandArgs, {
+        cwd: repoRoot,
+        timeoutMs: body.dry_run ? 45_000 : 120_000
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown Vibe execution error";
+      const looksLikeMissingBinary =
+        message.toLowerCase().includes("enoent") || message.toLowerCase().includes("not found");
+      return reply.status(looksLikeMissingBinary ? 501 : 500).send({
+        error: looksLikeMissingBinary
+          ? "Vibe CLI is not available on this host. Install `vibe` to enable build automation."
+          : message
+      });
+    }
+
+    const duration = Date.now() - startedAt;
+    const status = commandResult.timedOut
+      ? "timed_out"
+      : commandResult.exitCode === 0
+        ? "completed"
+        : "failed";
+
+    const payload = runBuildResponseSchema.parse({
+      build_id: randomUUID(),
+      status,
+      command: `vibe --workdir ${repoRoot} -p <prompt> --max-turns ${body.dry_run ? "4" : "10"} --output text${body.dry_run ? " --agent plan" : ""}`,
+      exit_code: commandResult.exitCode,
+      output: commandResult.output,
+      duration_ms: duration,
+      notes: [
+        commandResult.timedOut ? "Execution timed out before completion." : "Execution completed.",
+        "Output may be truncated to keep response size bounded."
+      ]
     });
 
     return reply.status(200).send(payload);
