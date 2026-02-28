@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "build": "npm run --workspaces build",
-    "dev": "echo 'Run each workspace dev script in separate terminals: npm run redis:up, npm run dev:api, npm run dev:worker'",
+    "dev": "npm run dev:all",
     "dev:all": "bash scripts/dev-all.sh",
     "dev:api": "npm run dev -w apps/api",
     "dev:worker": "npm run dev -w apps/worker",

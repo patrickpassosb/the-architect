@@ -14,6 +14,21 @@ import { useVoiceTranscript } from "@/hooks/useVoiceTranscript";
 
 const DEFAULT_MODE: Mode = "architect";
 
+const sidebarGroups = [
+  {
+    label: "Favorites",
+    items: ["Performance Budget", "Accessibility Audit", "System Architecture", "API Documents"]
+  },
+  {
+    label: "Coding and Data",
+    items: ["Meeting Notes", "Database Schema", "Competitor Analysis", "Release Optimization"]
+  },
+  {
+    label: "Design and Product",
+    items: ["Landing Page Copy", "Mockup Generation", "Logo Concepts"]
+  }
+] as const;
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     return error.message;
@@ -36,6 +51,18 @@ function normalizeJsonPayload(payload: unknown): unknown {
   } catch {
     return payload;
   }
+}
+
+function formatSessionId(id: string | null): string {
+  if (!id) {
+    return "Not created";
+  }
+
+  if (id.length <= 16) {
+    return id;
+  }
+
+  return `${id.slice(0, 8)}...${id.slice(-8)}`;
 }
 
 export default function HomePage() {
@@ -166,219 +193,250 @@ export default function HomePage() {
   }, [selectedArtifact]);
 
   return (
-    <main className="shell">
-      <header className="topbar">
-        <div>
-          <h1>The Architect</h1>
-          <p>Voice-first CTO copilot with session + artifacts workflow.</p>
-        </div>
+    <main className="app-shell">
+      <div className="bg-glow bg-glow-blue" aria-hidden="true" />
+      <div className="bg-glow bg-glow-violet" aria-hidden="true" />
 
-        <div className="topbar-actions">
-          <label className="field compact" htmlFor="mode-select">
-            Mode
-            <select
-              id="mode-select"
-              value={mode}
-              onChange={(event) => setMode(event.target.value as Mode)}
-              disabled={sessionLoading || isSending}
-            >
-              <option value="architect">Architect</option>
-              <option value="planner">Planner</option>
-              <option value="pitch">Pitch</option>
-            </select>
+      <section className="workspace">
+        <aside className="sidebar panel">
+          <div className="brand">
+            <p className="brand-kicker">Workspace</p>
+            <h1>The Architect</h1>
+          </div>
+
+          <label className="search-wrap" htmlFor="sidebar-search">
+            <span className="sr-only">Search workspace</span>
+            <input id="sidebar-search" type="text" placeholder="Search..." readOnly value="" />
           </label>
 
-          <button className="button" onClick={() => void createNewSession()} disabled={sessionLoading || isSending}>
-            {sessionLoading ? "Creating..." : "New Session"}
-          </button>
-        </div>
-      </header>
+          <div className="sidebar-scroll">
+            {sidebarGroups.map((group) => (
+              <section key={group.label} className="nav-group">
+                <h2>{group.label}</h2>
+                <ul>
+                  {group.items.map((item) => (
+                    <li key={item}>
+                      <button type="button" className="nav-item">
+                        {item}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
 
-      {(sessionError || requestError) && (
-        <section className="status status-error">
-          {sessionError && <p>Session error: {sessionError}</p>}
-          {requestError && <p>Request error: {requestError}</p>}
-        </section>
-      )}
+          <div className="profile-strip">
+            <span className="avatar">A</span>
+            <p>Architect Session</p>
+          </div>
+        </aside>
 
-      {voice.isSupported === false && (
-        <section className="status status-warning">
-          Speech recognition is unavailable in this browser. You can still send text messages.
-        </section>
-      )}
-
-      {voice.error && (
-        <section className="status status-warning">
-          Voice error ({voice.error.code}): {voice.error.message}
-        </section>
-      )}
-
-      <section className="grid">
-        <div className="column">
-          <section className="card">
-            <h2>Voice Input</h2>
-            <p className="muted">Record, review transcript, and send as <code>source=voice</code>.</p>
-
-            <div className="row">
-              <button
-                className={`button ${voice.isRecording ? "button-danger" : "button-primary"}`}
-                onClick={() => {
-                  if (voice.isRecording) {
-                    voice.stopRecording();
-                    return;
-                  }
-
-                  void voice.startRecording();
-                }}
-                disabled={!sessionId || isSending}
-              >
-                {voice.isRecording ? "Stop Recording" : "Start Recording"}
-              </button>
-
-              <button className="button" onClick={voice.clearTranscript} disabled={!voice.fullTranscript || isSending}>
-                Clear
-              </button>
-
-              <button
-                className="button button-primary"
-                onClick={() => void send("voice", voice.fullTranscript)}
-                disabled={!sessionId || !voice.fullTranscript.trim() || isSending}
-              >
-                {isSending ? "Sending..." : "Send Voice"}
+        <section className="main-area">
+          <header className="topbar panel">
+            <div>
+              <p className="kicker">AI Build Assistant</p>
+              <h2>Focus, Decide, Ship</h2>
+            </div>
+            <div className="topbar-actions">
+              <label className="field compact" htmlFor="mode-select">
+                Mode
+                <select
+                  id="mode-select"
+                  value={mode}
+                  onChange={(event) => setMode(event.target.value as Mode)}
+                  disabled={sessionLoading || isSending}
+                >
+                  <option value="architect">Architect</option>
+                  <option value="planner">Planner</option>
+                  <option value="pitch">Pitch</option>
+                </select>
+              </label>
+              <button className="button button-primary" onClick={() => void createNewSession()} disabled={sessionLoading || isSending}>
+                {sessionLoading ? "Creating..." : "New Session"}
               </button>
             </div>
+          </header>
 
-            <label className="field" htmlFor="voice-transcript">
-              Transcript
-              <textarea
-                id="voice-transcript"
-                value={voice.fullTranscript}
-                readOnly
-                placeholder="Transcript appears here while recording"
-                rows={5}
-              />
-            </label>
-          </section>
+          {(sessionError || requestError) && (
+            <section className="status status-error">
+              {sessionError && <p>Session error: {sessionError}</p>}
+              {requestError && <p>Request error: {requestError}</p>}
+            </section>
+          )}
 
-          <section className="card">
-            <h2>Text Message</h2>
-            <p className="muted">Fallback or follow-up input path with <code>source=text</code>.</p>
-            <label className="field" htmlFor="text-message">
-              Message
-              <textarea
-                id="text-message"
-                value={draftMessage}
-                onChange={(event) => setDraftMessage(event.target.value)}
-                placeholder="Ask for architecture, decisions, or execution plan"
-                rows={4}
-                disabled={!sessionId || isSending}
-              />
-            </label>
-            <div className="row">
-              <button
-                className="button button-primary"
-                disabled={!sessionId || !draftMessage.trim() || isSending}
-                onClick={() => void send("text", draftMessage)}
-              >
-                {isSending ? "Sending..." : "Send Text"}
-              </button>
-            </div>
-          </section>
+          {voice.isSupported === false && (
+            <section className="status status-warning">
+              Speech recognition is unavailable in this browser. You can still send text messages.
+            </section>
+          )}
 
-          <section className="card">
-            <h2>Assistant Response</h2>
-            {!assistant ? (
-              <p className="muted">No response yet. Send a message to receive structured output.</p>
-            ) : (
-              <div className="assistant-response">
-                <p>
-                  <strong>Input source:</strong> {lastSource}
-                </p>
-                <p>
-                  <strong>Summary:</strong> {assistant.summary}
-                </p>
-                <p>
-                  <strong>Decision:</strong> {assistant.decision}
-                </p>
-                <div>
-                  <strong>Next actions:</strong>
-                  {assistant.next_actions.length === 0 ? (
-                    <p className="muted">No next actions returned.</p>
-                  ) : (
-                    <ol>
-                      {assistant.next_actions.map((item, index) => (
-                        <li key={`${item}-${index}`}>{item}</li>
-                      ))}
-                    </ol>
-                  )}
+          {voice.error && (
+            <section className="status status-warning">
+              Voice error ({voice.error.code}): {voice.error.message}
+            </section>
+          )}
+
+          <section className="chat-pane panel">
+            <article className="bubble assistant-bubble">
+              <h3>Assistant Response {lastSource ? <span>({lastSource})</span> : null}</h3>
+              {!assistant ? (
+                <p className="muted">No response yet. Send voice or text to receive a structured output.</p>
+              ) : (
+                <div className="assistant-grid">
+                  <section>
+                    <h4>Summary</h4>
+                    <p>{assistant.summary}</p>
+                  </section>
+                  <section>
+                    <h4>Decision</h4>
+                    <p>{assistant.decision}</p>
+                  </section>
+                  <section>
+                    <h4>Next Actions</h4>
+                    {assistant.next_actions.length === 0 ? (
+                      <p className="muted">No next actions returned.</p>
+                    ) : (
+                      <ol>
+                        {assistant.next_actions.map((item, index) => (
+                          <li key={`${item}-${index}`}>{item}</li>
+                        ))}
+                      </ol>
+                    )}
+                  </section>
                 </div>
+              )}
+            </article>
+
+            <article className="bubble voice-panel">
+              <h3>Voice Input</h3>
+              <p className="muted">Record, review transcript, and send as <code>source=voice</code>.</p>
+              <div className="row">
+                <button
+                  className={`button ${voice.isRecording ? "button-danger" : "button-primary"}`}
+                  onClick={() => {
+                    if (voice.isRecording) {
+                      voice.stopRecording();
+                      return;
+                    }
+                    void voice.startRecording();
+                  }}
+                  disabled={!sessionId || isSending}
+                >
+                  {voice.isRecording ? "Stop Recording" : "Start Recording"}
+                </button>
+                <button className="button" onClick={voice.clearTranscript} disabled={!voice.fullTranscript || isSending}>
+                  Clear
+                </button>
+                <button
+                  className="button button-accent"
+                  onClick={() => void send("voice", voice.fullTranscript)}
+                  disabled={!sessionId || !voice.fullTranscript.trim() || isSending}
+                >
+                  {isSending ? "Sending..." : "Send Voice"}
+                </button>
               </div>
-            )}
-          </section>
-        </div>
+              <label className="field" htmlFor="voice-transcript">
+                Transcript
+                <textarea
+                  id="voice-transcript"
+                  value={voice.fullTranscript}
+                  readOnly
+                  placeholder="Transcript appears here while recording"
+                  rows={4}
+                />
+              </label>
+            </article>
 
-        <div className="column">
-          <section className="card">
-            <div className="row spaced">
-              <h2>Artifacts</h2>
-              <button
-                className="button"
-                onClick={() => sessionId && void loadArtifacts(sessionId)}
-                disabled={!sessionId || artifactsLoading || isSending}
-              >
-                {artifactsLoading ? "Refreshing..." : "Refresh"}
-              </button>
-            </div>
-
-            {artifactsError && <p className="status-inline status-error">{artifactsError}</p>}
-
-            {!sessionId && <p className="muted">Create a session to load artifacts.</p>}
-            {sessionId && !artifactsLoading && artifacts.length === 0 && (
-              <p className="muted">No artifacts yet for this session.</p>
-            )}
-
-            <ul className="artifact-list">
-              {artifacts.map((artifact) => (
-                <li key={artifact.id}>
-                  <button className="artifact-button" onClick={() => void openArtifact(artifact.id)}>
-                    <span>{artifact.title}</span>
-                    <small>{artifact.kind}</small>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="card artifact-detail">
-            <h2>Artifact Detail</h2>
-            {artifactLoading && <p className="muted">Loading artifact...</p>}
-            {artifactError && <p className="status-inline status-error">{artifactError}</p>}
-
-            {!artifactLoading && !selectedArtifact && <p className="muted">Select an artifact to inspect markdown and JSON.</p>}
-
-            {selectedArtifact && !artifactLoading && (
-              <>
-                <p className="muted">
-                  {selectedArtifact.title ?? "Untitled"} ({selectedArtifact.kind})
+            <article className="bubble composer">
+              <label className="field" htmlFor="text-message">
+                Message
+                <textarea
+                  id="text-message"
+                  value={draftMessage}
+                  onChange={(event) => setDraftMessage(event.target.value)}
+                  placeholder="Ask for architecture, decisions, or execution plan"
+                  rows={3}
+                  disabled={!sessionId || isSending}
+                />
+              </label>
+              <div className="composer-footer">
+                <p className="session-pill" title={sessionId ?? "not created"}>
+                  Session: <code>{formatSessionId(sessionId)}</code>
                 </p>
-
-                <div className="markdown-frame">
-                  <ReactMarkdown>{selectedArtifact.content_md || "_No markdown content_"}</ReactMarkdown>
-                </div>
-
-                <div className="json-block">
-                  <h3>JSON Payload</h3>
-                  <pre>{prettyJson ?? "No JSON payload returned for this artifact."}</pre>
-                </div>
-              </>
-            )}
+                <button
+                  className="button button-accent"
+                  disabled={!sessionId || !draftMessage.trim() || isSending}
+                  onClick={() => void send("text", draftMessage)}
+                >
+                  {isSending ? "Sending..." : "Send Text"}
+                </button>
+              </div>
+            </article>
           </section>
-        </div>
-      </section>
 
-      <footer className="footer muted">
-        <p>Session: {sessionId ?? "not created"}</p>
-      </footer>
+          <section className="inspector-grid">
+            <article className="panel artifacts">
+              <div className="row spaced">
+                <h3>Artifacts</h3>
+                <button
+                  className="button"
+                  onClick={() => sessionId && void loadArtifacts(sessionId)}
+                  disabled={!sessionId || artifactsLoading || isSending}
+                >
+                  {artifactsLoading ? "Refreshing..." : "Refresh"}
+                </button>
+              </div>
+
+              {artifactsError && <p className="status-inline status-error">{artifactsError}</p>}
+
+              {!sessionId && <p className="muted">Create a session to load artifacts.</p>}
+              {sessionId && !artifactsLoading && artifacts.length === 0 && <p className="muted">No artifacts yet for this session.</p>}
+
+              <ul className="artifact-list">
+                {artifacts.map((artifact) => {
+                  const isActive = selectedArtifact?.id === artifact.id;
+
+                  return (
+                    <li key={artifact.id}>
+                      <button
+                        className={`artifact-button ${isActive ? "artifact-button-active" : ""}`}
+                        onClick={() => void openArtifact(artifact.id)}
+                        aria-pressed={isActive}
+                      >
+                        <span className="artifact-title">{artifact.title}</span>
+                        <small>{artifact.kind}</small>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </article>
+
+            <article className="panel detail">
+              <h3>Artifact Detail</h3>
+              {artifactLoading && <p className="muted">Loading artifact...</p>}
+              {artifactError && <p className="status-inline status-error">{artifactError}</p>}
+              {!artifactLoading && !selectedArtifact && <p className="muted">Select an artifact to inspect markdown and JSON.</p>}
+
+              {selectedArtifact && !artifactLoading && (
+                <>
+                  <p className="muted detail-meta">
+                    {selectedArtifact.title ?? "Untitled"} ({selectedArtifact.kind})
+                  </p>
+                  <div className="markdown-frame">
+                    <ReactMarkdown>{selectedArtifact.content_md || "_No markdown content_"}</ReactMarkdown>
+                  </div>
+                  <div className="json-block">
+                    <h4>JSON Payload</h4>
+                    <pre>{prettyJson ?? "No JSON payload returned for this artifact."}</pre>
+                  </div>
+                </>
+              )}
+            </article>
+          </section>
+        </section>
+      </section>
     </main>
   );
 }

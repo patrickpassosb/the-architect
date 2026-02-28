@@ -61,6 +61,30 @@ Phase 1 target: local end-to-end loop working
 4. artifact job queued
 5. artifact saved and shown in UI
 
+## Run Entire Project (One Command)
+1. Install dependencies:
+```bash
+npm install
+```
+2. Create local env file:
+```bash
+cp .env.example .env
+```
+3. Start everything (Redis + API + Worker + Web):
+```bash
+npm run dev
+```
+
+Services:
+- Web: `http://localhost:3000`
+- API: `http://localhost:4000/api/health`
+- Worker health: `http://localhost:4100/health`
+
+If ports are already in use and you want auto-cleanup:
+```bash
+npm run dev:all -- --force
+```
+
 ---
 
 If this repo is used in a hackathon, prioritize: shipping, reliability, and demo clarity over premature complexity.
