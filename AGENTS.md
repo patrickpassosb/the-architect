@@ -1,51 +1,32 @@
-# Repository Guidelines
+# Repository Guidelines for AI Agents
 
-## Project Structure & Module Organization
-This repo is an npm workspaces monorepo.
-- `apps/web`: Next.js 15 frontend (App Router) for voice input, session UI, and artifact rendering.
-- `apps/api`: Fastify API for sessions/messages/artifacts orchestration.
-- `apps/worker`: BullMQ worker for async artifact jobs.
-- `packages/shared-types`: shared Zod schemas and TypeScript types used across web/api/worker.
-- `packages/core`: shared backend domain/infrastructure helpers.
-- `infra/`: local infra (Redis via Docker Compose).
-- `docs/`: PRD, architecture, schema, queue, and deployment docs.
+This file provides high-level instructions and patterns for AI agents working within this monorepo.
 
-## Build, Test, and Development Commands
-From repo root:
-- `npm install`: install all workspace dependencies.
-- `npm run redis:up`: start Redis for queue workflows.
-- `npm run dev:api`: run Fastify API in watch mode.
-- `npm run dev:worker`: run BullMQ worker in watch mode.
-- `npm run dev -w apps/web`: run frontend on `http://localhost:3000`.
-- `npm run build`: build all workspaces.
-- `npm run typecheck`: run TypeScript checks across workspaces.
-- `npm run test`: run workspace test scripts (currently placeholders).
+## Project Structure and Module Organization
 
-## Coding Style & Naming Conventions
-- Language: TypeScript (strict mode).
-- Indentation: 2 spaces; keep files ASCII unless needed.
-- React components: `PascalCase`; hooks/utilities: `camelCase` (example: `useVoiceTranscript`).
-- Zod schemas: `camelCase` with `Schema` suffix (example: `sendMessageRequestSchema`).
-- Keep API contracts centralized in `packages/shared-types`; do not duplicate shapes in apps.
-- Web linting uses `next/core-web-vitals` (`apps/web/.eslintrc.json`).
+The Architect is organized as an npm workspaces monorepo:
 
-## Testing Guidelines
-No formal test suite is configured yet. Minimum contribution checks:
-- `npm run typecheck`
-- `npm run build`
-- manual smoke test of changed runtime path (web, API route, or worker flow).
-When adding tests, colocate them near source (`*.test.ts` / `*.test.tsx`) and prefer deterministic unit tests for shared types/core logic.
+- **`apps/web`**: Next.js 15 (App Router) frontend, handles voice capture and UI visualization.
+- **`apps/api`**: Fastify HTTP server, handles session orchestration and AI reasoning.
+- **`apps/worker`**: BullMQ worker for asynchronous background tasks (artifact generation).
+- **`packages/shared-types`**: Central Zod schemas and inferred TypeScript types.
+- **`packages/core`**: Common infrastructure (SQLite, Queue, Logger) and domain logic (Mistral provider).
 
-## Commit & Pull Request Guidelines
-There is no established commit history yet; use Conventional Commits going forward (e.g., `feat(web): add voice transcript submit`).
-PRs should include:
-- concise summary of behavior change,
-- affected workspaces (`apps/web`, `apps/api`, etc.),
-- validation steps/commands run,
-- screenshots or short recordings for UI changes,
-- linked issue/task when available.
+## Coding Conventions
 
-## Security & Configuration Tips
-- Copy `.env.example` to `.env`; use `apps/web/.env.local` for frontend env vars.
-- Never commit secrets or local env files.
-- Run `npm audit` before release; document accepted residual risks in PR notes.
+- **Type Safety**: Use Zod for all API boundaries. Export inferred types from `packages/shared-types`.
+- **Database Access**: Use the centralized helpers in `packages/core/src/db.ts`. Do not write raw SQL in application code.
+- **AI Reasoning**: Maintain the structured-output schema for Mistral responses (`assistantResponseSchema`).
+- **Asynchronous Work**: Offload heavy computations (like markdown formatting) to the worker via BullMQ.
+
+## Development and Testing
+
+- **Local Services**: Start Redis using `npm run redis:up`.
+- **Monorepo Startup**: Use `npm run dev:all` to launch all services.
+- **Verification**: Run `npm run typecheck` and `npm run test:integration` before submitting changes.
+
+## Documentation Requirements
+
+- All public functions and classes must include JSDoc explaining their purpose and logic.
+- Architectural changes must be reflected in the `docs/` directory.
+- Root configurations and environment variables must be kept up-to-date in `.env.example`.
