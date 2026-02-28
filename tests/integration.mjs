@@ -1,12 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+/**
+ * Integration test suite for The Architect.
+ * Validates the core API endpoints and worker orchestration.
+ */
+
 const API_BASE = process.env.API_BASE_URL ?? 'http://127.0.0.1:4000';
 const WORKER_BASE = process.env.WORKER_BASE_URL ?? 'http://127.0.0.1:4100';
 const REQUIRE_PROVIDER_SUCCESS = process.env.REQUIRE_PROVIDER_SUCCESS === '1';
 const ARTIFACT_POLL_ATTEMPTS = Number(process.env.ARTIFACT_POLL_ATTEMPTS ?? '20');
 const ARTIFACT_POLL_INTERVAL_MS = Number(process.env.ARTIFACT_POLL_INTERVAL_MS ?? '1000');
 
+/**
+ * Helper to perform a JSON-based fetch request to the API.
+ * @param path - The relative API path.
+ * @param init - Fetch RequestInit options.
+ */
 async function jfetch(path, init) {
   const res = await fetch(`${API_BASE}${path}`, init);
   const text = await res.text();
@@ -43,6 +53,9 @@ test('api health endpoint', async () => {
   assert.equal(json?.status, 'ok');
 });
 
+/**
+ * Verifies that the worker health endpoint is reachable and returns an OK status.
+ */
 test('worker health endpoint', async () => {
   const res = await fetch(`${WORKER_BASE}/health`);
   const json = await res.json();
@@ -50,6 +63,9 @@ test('worker health endpoint', async () => {
   assert.equal(json?.ok, true);
 });
 
+/**
+ * Validates the session creation flow and the ability to list artifacts for a new session.
+ */
 test('create session + list artifacts', async () => {
   const created = await jfetch('/api/sessions', {
     method: 'POST',

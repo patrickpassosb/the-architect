@@ -1,11 +1,29 @@
+# Common dependency and build directories
 node_modules
-**/node_modules
 dist
-**/dist
-.env
-.env.*
+.next
+out
+build
+*.log
+
+# Database and data storage
+data/
 *.sqlite
+*.sqlite-journal
 *.sqlite-shm
 *.sqlite-wal
+
+# Operating system and git metadata
+.git
+.gitignore
 .DS_Store
-*.tsbuildinfo
+Thumbs.db
+
+# Documentation and temporary files
+docs/
+tests/
+scripts/
+README.md
+AGENT_PROMPT.md
+QUESTIONS_FOR_PATRICK.md
+AGENTS.md
