@@ -254,6 +254,31 @@ async function withTimeout<T>(
 }
 
 /**
+ * Helper: Retry an operation with exponential backoff.
+ * Returns the result on success or throws on final failure.
+ */
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 2,
+  baseDelayMs: number = 500
+): Promise<T> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < maxRetries) {
+        const delay = baseDelayMs * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
+}
+
+/**
  * Helper: Identify if an error is related to Redis connection issues.
  */
 function isRedisConnectivityError(error: Error): boolean {
@@ -528,7 +553,8 @@ async function start(): Promise<void> {
 
   // 2. Enable CORS so the Next.js frontend (on port 3000) can talk to this API (on port 4000)
   await app.register(cors, {
-    origin: true
+    origin: true,
+    methods: ["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"]
   });
 
   // 3. Connect to the background task queue
@@ -811,15 +837,21 @@ async function start(): Promise<void> {
 
     let assistantTimeout: NodeJS.Timeout | null = null;
 
-    // 2. Call AI (Mistral)
+    // 2. Call AI (Mistral) with retry logic
+    const callMistral = () => generateMistralAssistantResponse({
+      apiKey: env.mistralApiKey,
+      model: env.mistralModel,
+      mode: session.mode,
+      userInput: body.content,
+      apiUrl: env.mistralApiUrl,
+      timeoutMs: 60_000
+    });
+
     // We use Promise.race to ensure we don't wait forever for the AI.
     const assistant = await Promise.race([
-      generateMistralAssistantResponse({
-        apiKey: env.mistralApiKey,
-        model: env.mistralModel,
-        mode: session.mode,
-        userInput: body.content,
-        apiUrl: env.mistralApiUrl
+      withRetry(callMistral, 2, 500).catch(error => {
+        app.log.warn({ error, sessionId: session.id }, "Mistral failed after retries");
+        return buildFallbackAssistantResponse(error);
       }),
       new Promise<AssistantResponse>((resolve) => {
         assistantTimeout = setTimeout(() => {
@@ -832,7 +864,7 @@ async function start(): Promise<void> {
               new Error("Mistral request timed out while generating assistant response")
             )
           );
-        }, 15_000); // 15 second timeout for AI response
+        }, 60_000); // 60 seconds timeout for AI response (faster fallback)
       })
     ]).catch((error) => buildFallbackAssistantResponse(error));
 

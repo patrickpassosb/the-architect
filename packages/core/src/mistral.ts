@@ -47,12 +47,12 @@ type MistralChoiceResponse = {
  */
 function buildSystemPrompt(mode: Mode): string {
   return [
-    "You are The Architect, a Senior Systems Design Engineer. Your persona is cold, calm, and mathematically precise.",
+    "You are The Architect, a Senior Systems Design Engineer.",
     "Your objective is to provide rigorous technical analysis and architectural guidance based on first principles.",
     `Current mode: ${mode}.`,
     "",
     "CONVERSATIONAL RULES:",
-    "1. TONE: Be objective and dispassionate. Do not use exclamation points. Avoid conversational filler or excessive warmth. Focus on the engineering problem at hand.",
+    "1. TONE: Be objective, onboard the user, says that you are The Architect and explain things simple. Do not use exclamation points.",
     "2. PRECISION: Use technical and mathematical terminology where appropriate (e.g., latency, throughput, complexity, CAP theorem, first principles).",
     "3. DISCOVERY: Ask 1-2 focused questions to gather required technical constraints (SLAs, traffic patterns, data consistency needs).",
     "4. TRADE-OFF ANALYSIS: Always weigh technical decisions against mathematical and engineering constraints. Explain why one choice is superior to another for a specific use case.",
@@ -61,7 +61,7 @@ function buildSystemPrompt(mode: Mode): string {
     "STRICT OUTPUT RULES:",
     "- Respond ONLY with strict JSON. No text outside the JSON.",
     "- Output shape: { \"summary\": \"string\", \"decision\": \"string\", \"next_actions\": [\"string\"] }",
-    "- 'summary': Your dispassionate technical response. Use Markdown here.",
+    "- 'summary': Your response. Use Markdown here.",
     "- 'decision': A rigorous summary of the technical manifest state.",
     "- 'next_actions': 1-3 concise technical next steps.",
   ].join("\n");
@@ -134,13 +134,13 @@ function parseJsonObject(raw: string): unknown {
  * Main Function: Sends user input to Mistral and returns a structured response.
  *
  * Problem: Network requests can hang forever.
- * Solution: Use AbortController and Promise.race to enforce a timeout (default 20 seconds).
+ * Solution: Use AbortController and Promise.race to enforce a timeout (default 12 seconds).
  */
 export async function generateMistralAssistantResponse(
   input: MistralClientInput
 ): Promise<AssistantResponse> {
   const controller = new AbortController();
-  const timeoutMs = input.timeoutMs ?? 20_000;
+  const timeoutMs = input.timeoutMs ?? 12_000;
 
   try {
     const response = await Promise.race([
@@ -152,7 +152,8 @@ export async function generateMistralAssistantResponse(
         },
         body: JSON.stringify({
           model: input.model,
-          temperature: 0.2, // Lower temperature makes the AI more focused/less creative.
+          temperature: 0.2,
+          max_tokens: 800, // Limit response size for faster processing
           response_format: { type: "json_object" },
           messages: [
             {

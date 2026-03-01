@@ -130,6 +130,11 @@ docs/
    npm run dev
    ```
 
+4. **Start everything forcing (Redis + API + Worker + Web):**
+  ```bash
+  npm run dev:all -- --force
+  ```
+
 - **Web:** `http://localhost:3000`
 - **API Health:** `http://localhost:4000/api/health`
 - **Worker Health:** `http://localhost:4100/health`

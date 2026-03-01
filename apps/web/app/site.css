@@ -115,16 +115,17 @@ pre {
 }
 
 .sidebar-brand h2 {
-  font-size: 1.1rem;
+  font-size: 1.4rem;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
   letter-spacing: 0.05em;
   font-weight: 800;
 }
 
 .brand-icon {
   color: #f68279;
+  font-size: 1.9em;
 }
 
 .brand-muted {
