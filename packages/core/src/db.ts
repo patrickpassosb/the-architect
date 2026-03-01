@@ -31,6 +31,7 @@ export type SessionRecord = {
   id: string;
   title: string | null;
   mode: Mode;
+  tech_stack: string | null; // JSON string
   created_at: string;
   updated_at: string;
 };
@@ -148,6 +149,7 @@ export async function runMigrations(db: AppDatabase): Promise<void> {
       id TEXT PRIMARY KEY,
       title TEXT,
       mode TEXT NOT NULL CHECK (mode IN ('architect', 'planner', 'pitch')),
+      tech_stack TEXT,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -217,6 +219,7 @@ export async function runMigrations(db: AppDatabase): Promise<void> {
 
   // Ensure new columns exist for existing databases (backward compatibility)
   await ensureColumnExists(db, "artifacts", "content_json", "TEXT");
+  await ensureColumnExists(db, "sessions", "tech_stack", "TEXT");
 }
 
 /**
@@ -284,9 +287,23 @@ export async function getSessionById(
   sessionId: string
 ): Promise<SessionRecord | undefined> {
   return db.get<SessionRecord>(
-    `SELECT id, title, mode, created_at, updated_at
+    `SELECT id, title, mode, tech_stack, created_at, updated_at
      FROM sessions
      WHERE id = ?`,
+    sessionId
+  );
+}
+
+export async function updateSessionTechStack(
+  db: AppDatabase,
+  sessionId: string,
+  techStackJson: string
+): Promise<void> {
+  await db.run(
+    `UPDATE sessions 
+     SET tech_stack = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    techStackJson,
     sessionId
   );
 }

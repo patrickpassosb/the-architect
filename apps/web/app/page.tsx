@@ -19,7 +19,8 @@ import {
   type Mode,
   type RunBuildResponse,
   type SavedNodePosition,
-  type Source
+  type Source,
+  type TechStack
 } from "@the-architect/shared-types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -33,7 +34,15 @@ import {
   Sparkles,
   Mic,
   Square,
-  ClipboardList
+  ClipboardList,
+  Save,
+  Wand2,
+  Check,
+  X,
+  Plus,
+  Trash2,
+  AlertCircle,
+  ChevronRight
 } from "lucide-react";
 import {
   ApiError,
@@ -45,7 +54,10 @@ import {
   runBuildWithVibe,
   saveLayout,
   sendMessage,
-  synthesizeVoice
+  synthesizeVoice,
+  getTechStack,
+  updateTechStack,
+  proposeTechStack
 } from "@/lib/api";
 import { useVoiceTranscript } from "@/hooks/useVoiceTranscript";
 import { useSessionEvents } from "@/hooks/useSessionEvents";
@@ -166,6 +178,14 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const INITIAL_TECH_STACK: TechStack = {
+  core: { language: "", framework: "", database: "" },
+  data: { cache: "", broker: "", storage: "" },
+  security: { auth: "", provider: "", gateway: "" },
+  services: { observability: "", external_apis: "" },
+  custom: []
+};
+
 export default function HomePage() {
   // Voice Recording Hook (Logic is separated for cleanliness)
   const voice = useVoiceTranscript();
@@ -177,54 +197,13 @@ export default function HomePage() {
 
   const [activePanel, setActivePanel] = useState<WorkspacePanel>("chat");
 
-  /**
-   * React State Management
-   * Problem: React needs to "remember" things like the current session ID
-   * and the messages in the chat.
-   * Solution: Use 'useState' hooks to track these values.
-   */
   const [mode, setMode] = useState<Mode>(DEFAULT_MODE);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
-  useSessionEvents(sessionId, {
-    onArtifactReady: (kind) => {
-      console.log(`Real-time update: Artifact of kind "${kind}" is ready.`);
-      if (sessionId) {
-        void loadArtifacts(sessionId);
-      }
-    },
-    onJobFailed: (error) => {
-      console.error("Real-time update: Job failed:", error);
-      setRequestError(`Background job failed: ${error}`);
-    },
-    onBuildLog: (agent, data) => {
-      setBuildLogs((prev) => [...prev, { agent, data, timestamp: Date.now() }]);
-    },
-    onBuildStart: (turbo) => {
-      setBuildLogs([]);
-      setBuildStartTime(Date.now());
-    },
-    onBuildDone: () => {
-      setBuildLoading(false);
-    }
-  });
-  const [sessionLoading, setSessionLoading] = useState(false);
-  const [sessionError, setSessionError] = useState<string | null>(null);
-
-  const [draftMessage, setDraftMessage] = useState("");
-  const [isSending, setIsSending] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
-
-  // Project Spec State
-  const [projectSpec, setProjectSpec] = useState({
-    backend: "",
-    frontend: "",
-    database: "",
-    other: ""
-  });
-
-  // The actual list of messages shown in the UI
-  const [thread, setThread] = useState<ThreadMessage[]>([]);
+  const [buildLogs, setBuildLogs] = useState<Array<{ agent: string; data: string; timestamp: number }>>([]);
+  const [buildStartTime, setBuildStartTime] = useState<number | null>(null);
+  const [buildLoading, setBuildLoading] = useState(false);
 
   // Documents (Artifacts) state
   const [artifacts, setArtifacts] = useState<ArtifactListItem[]>([]);
@@ -234,52 +213,10 @@ export default function HomePage() {
   const [artifactLoading, setArtifactLoading] = useState(false);
   const [artifactError, setArtifactError] = useState<string | null>(null);
 
-  /**
-   * Action: Start a new session.
-   */
   const [architectureArtifact, setArchitectureArtifact] = useState<ArtifactDetail | null>(null);
   const [architectureLoading, setArchitectureLoading] = useState(false);
   const [architectureError, setArchitectureError] = useState<string | null>(null);
-  const [architectureGenerating, setArchitectureGenerating] = useState(false);
   const [showArchitectureMarkdown, setShowArchitectureMarkdown] = useState(false);
-
-  // Blueprint (React Flow) state
-  const [blueprintJson, setBlueprintJson] = useState<BlueprintJson | null>(null);
-  const [blueprintReadme, setBlueprintReadme] = useState<string>("");
-  const [savedPositions, setSavedPositions] = useState<SavedNodePosition[]>([]);
-  const [blueprintGenerating, setBlueprintGenerating] = useState(false);
-  const [blueprintError, setBlueprintError] = useState<string | null>(null);
-  const [layoutSaving, setLayoutSaving] = useState(false);
-
-  const [speakingId, setSpeakingId] = useState<string | null>(null);
-  const [speechError, setSpeechError] = useState<string | null>(null);
-
-  const [buildGoal, setBuildGoal] = useState("");
-  const [buildDryRun, setBuildDryRun] = useState(false);
-  const [turboMode, setTurboMode] = useState(false);
-  const [buildLoading, setBuildLoading] = useState(false);
-  const [buildError, setBuildError] = useState<string | null>(null);
-  const [buildResult, setBuildResult] = useState<RunBuildResponse | null>(null);
-  const [buildLogs, setBuildLogs] = useState<Array<{ agent: string; data: string; timestamp: number }>>([]);
-  const [buildStartTime, setBuildStartTime] = useState<number | null>(null);
-
-  const latestAssistantMessage = useMemo(() => {
-    for (let index = thread.length - 1; index >= 0; index -= 1) {
-      const item = thread[index];
-      if (item.role === "assistant") {
-        return item;
-      }
-    }
-
-    return null;
-  }, [thread]);
-
-  const nextActionChips = useMemo(() => {
-    if (latestAssistantMessage?.role === "assistant") {
-      return latestAssistantMessage.content.next_actions;
-    }
-    return [];
-  }, [latestAssistantMessage]);
 
   const loadLatestArchitecture = useCallback(async (
     id: string,
@@ -311,6 +248,101 @@ export default function HomePage() {
     }
   }, [selectedArtifact]);
 
+  const loadArtifacts = useCallback(async (id: string) => {
+    setArtifactsLoading(true);
+    setArtifactsError(null);
+
+    try {
+      const list = await getArtifacts(id);
+      setArtifacts(list);
+      await loadLatestArchitecture(id, list);
+    } catch (error) {
+      setArtifactsError(getErrorMessage(error));
+    } finally {
+      setArtifactsLoading(false);
+    }
+  }, [loadLatestArchitecture]);
+
+  const sessionCallbacks = useMemo(() => ({
+    onArtifactReady: (kind: string) => {
+      console.log(`Real-time update: Artifact of kind "${kind}" is ready.`);
+      if (sessionId) {
+        void loadArtifacts(sessionId);
+      }
+    },
+    onJobFailed: (error: string) => {
+      console.error("Real-time update: Job failed:", error);
+      setRequestError(`Background job failed: ${error}`);
+    },
+    onBuildLog: (agent: string, data: string) => {
+      setBuildLogs((prev) => [...prev, { agent, data, timestamp: Date.now() }]);
+    },
+    onBuildStart: (turbo: boolean) => {
+      setBuildLogs([]);
+      setBuildStartTime(Date.now());
+    },
+    onBuildDone: () => {
+      setBuildLoading(false);
+    }
+  }), [sessionId, loadArtifacts]);
+
+  useSessionEvents(sessionId, sessionCallbacks);
+
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+
+  const [draftMessage, setDraftMessage] = useState("");
+  const [isSending, setIsSending] = useState(false);
+
+  // Project Spec (Technical Manifest) State
+  const [projectSpec, setProjectSpec] = useState<TechStack>(INITIAL_TECH_STACK);
+  const [specSaving, setSpecSpecSaving] = useState(false);
+  const [specLoading, setSpecLoading] = useState(false);
+  const [specProposing, setSpecProposing] = useState(false);
+  const [proposals, setProposals] = useState<TechStack | null>(null);
+  const [showProposalModal, setShowProposalModal] = useState(false);
+  const [acceptedProposals, setAcceptedProposals] = useState<Record<string, boolean>>({});
+
+  // The actual list of messages shown in the UI
+  const [thread, setThread] = useState<ThreadMessage[]>([]);
+
+  const [architectureGenerating, setArchitectureGenerating] = useState(false);
+
+  // Blueprint (React Flow) state
+  const [blueprintJson, setBlueprintJson] = useState<BlueprintJson | null>(null);
+  const [blueprintReadme, setBlueprintReadme] = useState<string>("");
+  const [savedPositions, setSavedPositions] = useState<SavedNodePosition[]>([]);
+  const [blueprintGenerating, setBlueprintGenerating] = useState(false);
+  const [blueprintError, setBlueprintError] = useState<string | null>(null);
+  const [layoutSaving, setLayoutSaving] = useState(false);
+
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+
+  const [buildGoal, setBuildGoal] = useState("");
+  const [buildDryRun, setBuildDryRun] = useState(false);
+  const [turboMode, setTurboMode] = useState(false);
+  const [buildError, setBuildError] = useState<string | null>(null);
+  const [buildResult, setBuildResult] = useState<RunBuildResponse | null>(null);
+
+  const latestAssistantMessage = useMemo(() => {
+    for (let index = thread.length - 1; index >= 0; index -= 1) {
+      const item = thread[index];
+      if (item.role === "assistant") {
+        return item;
+      }
+    }
+
+    return null;
+  }, [thread]);
+
+  const nextActionChips = useMemo(() => {
+    if (latestAssistantMessage?.role === "assistant") {
+      return latestAssistantMessage.content.next_actions;
+    }
+    return [];
+  }, [latestAssistantMessage]);
+
   const loadBlueprint = useCallback(async (id: string) => {
     try {
       const bp = await getBlueprint(id);
@@ -319,6 +351,22 @@ export default function HomePage() {
       setSavedPositions(bp.saved_positions);
     } catch {
       // Blueprint not yet generated, that's fine
+    }
+  }, []);
+
+  const loadTechStack = useCallback(async (id: string) => {
+    setSpecLoading(true);
+    try {
+      const response = await getTechStack(id);
+      if (response.tech_stack) {
+        setProjectSpec(response.tech_stack);
+      } else {
+        setProjectSpec(INITIAL_TECH_STACK);
+      }
+    } catch {
+      // Failed to load tech stack
+    } finally {
+      setSpecLoading(false);
     }
   }, []);
 
@@ -344,6 +392,7 @@ export default function HomePage() {
       setBuildResult(null);
       setBuildError(null);
       setBuildGoal("");
+      setProjectSpec(INITIAL_TECH_STACK);
       clearVoiceTranscript();
     } catch (error) {
       setSessionError(getErrorMessage(error));
@@ -351,24 +400,6 @@ export default function HomePage() {
       setSessionLoading(false);
     }
   }, [clearVoiceTranscript, mode]);
-
-  /**
-   * Action: Load the list of documents for the current session.
-   */
-  const loadArtifacts = useCallback(async (id: string) => {
-    setArtifactsLoading(true);
-    setArtifactsError(null);
-
-    try {
-      const list = await getArtifacts(id);
-      setArtifacts(list);
-      await loadLatestArchitecture(id, list);
-    } catch (error) {
-      setArtifactsError(getErrorMessage(error));
-    } finally {
-      setArtifactsLoading(false);
-    }
-  }, [loadLatestArchitecture]);
 
   /**
    * Effect: Automatically create a session when the app first loads.
@@ -387,7 +418,8 @@ export default function HomePage() {
 
     void loadArtifacts(sessionId);
     void loadBlueprint(sessionId);
-  }, [loadArtifacts, loadBlueprint, sessionId]);
+    void loadTechStack(sessionId);
+  }, [loadArtifacts, loadBlueprint, loadTechStack, sessionId]);
 
   /**
    * Effect: Keep the chat scrolled to the bottom.
@@ -441,12 +473,8 @@ export default function HomePage() {
       ]);
 
       try {
-        // Prepare context-aware content including current project spec
-        const specSummary = `Current Project Spec: Backend=${projectSpec.backend || "?"}, Frontend=${projectSpec.frontend || "?"}, Database=${projectSpec.database || "?"}, Other=${projectSpec.other || "None"}`;
-        const contextualContent = `[${specSummary}]\n\n${content}`;
-
         // Send to API
-        const response = await sendMessage(sessionId, { content: contextualContent, source });
+        const response = await sendMessage(sessionId, { content, source });
 
         // Add AI response to UI
         setThread((current) => [
@@ -474,7 +502,7 @@ export default function HomePage() {
         setIsSending(false);
       }
     },
-    [clearVoiceTranscript, loadArtifacts, sessionId, projectSpec]
+    [clearVoiceTranscript, loadArtifacts, sessionId]
   );
 
   /**
@@ -763,6 +791,94 @@ export default function HomePage() {
     turboMode
   ]);
 
+  const handleSaveTechStack = useCallback(async () => {
+    if (!sessionId) return;
+    setSpecSpecSaving(true);
+    try {
+      await updateTechStack(sessionId, { tech_stack: projectSpec });
+    } catch (error) {
+      setRequestError(getErrorMessage(error));
+    } finally {
+      setSpecSpecSaving(false);
+    }
+  }, [sessionId, projectSpec]);
+
+  const handleProposeTechStack = useCallback(async () => {
+    if (!sessionId) return;
+    setSpecProposing(true);
+    try {
+      const response = await proposeTechStack(sessionId);
+      setProposals(response.proposals);
+      
+      // Reset accepted state
+      const initialAccepted: Record<string, boolean> = {};
+      const checkDifferences = (obj1: any, obj2: any, prefix = "") => {
+        for (const key in obj2) {
+          const path = prefix ? `${prefix}.${key}` : key;
+          if (typeof obj2[key] === 'object' && !Array.isArray(obj2[key])) {
+            checkDifferences(obj1[key], obj2[key], path);
+          } else if (JSON.stringify(obj1[key]) !== JSON.stringify(obj2[key])) {
+            initialAccepted[path] = true;
+          }
+        }
+      };
+      checkDifferences(projectSpec, response.proposals);
+      setAcceptedProposals(initialAccepted);
+      setShowProposalModal(true);
+    } catch (error) {
+      setRequestError(getErrorMessage(error));
+    } finally {
+      setSpecProposing(false);
+    }
+  }, [sessionId, projectSpec]);
+
+  const applyProposals = useCallback(() => {
+    if (!proposals) return;
+    
+    setProjectSpec(current => {
+      const next = JSON.parse(JSON.stringify(current)) as TechStack;
+      
+      const merge = (target: any, source: any, prefix = "") => {
+        for (const key in source) {
+          const path = prefix ? `${prefix}.${key}` : key;
+          if (typeof source[key] === 'object' && !Array.isArray(source[key])) {
+            merge(target[key], source[key], path);
+          } else if (acceptedProposals[path]) {
+            target[key] = source[key];
+          }
+        }
+      };
+      
+      merge(next, proposals);
+      return next;
+    });
+    
+    setShowProposalModal(false);
+    setProposals(null);
+  }, [acceptedProposals, proposals]);
+
+  const updateCustomField = (index: number, key: string, value: string) => {
+    setProjectSpec(prev => {
+      const next = { ...prev };
+      next.custom[index] = { key, value };
+      return next;
+    });
+  };
+
+  const addCustomField = () => {
+    setProjectSpec(prev => ({
+      ...prev,
+      custom: [...prev.custom, { key: "", value: "" }]
+    }));
+  };
+
+  const removeCustomField = (index: number) => {
+    setProjectSpec(prev => ({
+      ...prev,
+      custom: prev.custom.filter((_, i) => i !== index)
+    }));
+  };
+
   return (
     <main className="chat-app">
       <section className="workspace-shell">
@@ -1025,66 +1141,177 @@ export default function HomePage() {
           )}
 
           {activePanel === "project-spec" && (
-            <section className="panel" style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1.5rem", padding: "2rem", maxWidth: "800px", margin: "0 auto", width: "100%", overflowY: "auto" }}>
-              <div className="row spaced">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <ClipboardList size={24} className="text-accent" style={{ color: '#63f0d2' }} />
-                  <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Project Specification</h2>
+            <section className="panel" style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1.5rem", padding: "2rem", margin: "0 auto", width: "100%", overflowY: "auto", position: 'relative' }}>
+              {specLoading && (
+                <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
+                  <Loader2 size={32} className="spin text-accent" />
                 </div>
-                <span className="muted" style={{ fontSize: '0.85rem' }}>Define the technical foundation of your application</span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginTop: '1rem' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  <div className="field-group">
-                    <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '0.5rem', display: 'block' }}>Backend Stack</label>
-                    <input
-                      type="text"
-                      value={projectSpec.backend}
-                      onChange={(e) => setProjectSpec(prev => ({ ...prev, backend: e.target.value }))}
-                      placeholder="e.g. Go (Gin), Rust (Axum), Node.js (Fastify)"
-                      style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '1rem', padding: '0.75rem 1rem', outline: 'none' }}
-                    />
+              )}
+              
+              <div className="row spaced" style={{ alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
+                    <ClipboardList size={24} style={{ color: '#63f0d2' }} />
+                    <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Technical Manifest</h2>
                   </div>
-
-                  <div className="field-group">
-                    <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '0.5rem', display: 'block' }}>Frontend Stack</label>
-                    <input
-                      type="text"
-                      value={projectSpec.frontend}
-                      onChange={(e) => setProjectSpec(prev => ({ ...prev, frontend: e.target.value }))}
-                      placeholder="e.g. React (Next.js), Vue (Nuxt), Svelte"
-                      style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '1rem', padding: '0.75rem 1rem', outline: 'none' }}
-                    />
-                  </div>
-
-                  <div className="field-group">
-                    <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '0.5rem', display: 'block' }}>Database</label>
-                    <input
-                      type="text"
-                      value={projectSpec.database}
-                      onChange={(e) => setProjectSpec(prev => ({ ...prev, database: e.target.value }))}
-                      placeholder="e.g. PostgreSQL, MongoDB, Redis"
-                      style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '1rem', padding: '0.75rem 1rem', outline: 'none' }}
-                    />
-                  </div>
+                  <p className="muted" style={{ fontSize: '0.85rem' }}>The single source of truth for your architecture foundation.</p>
                 </div>
-
-                <div className="field-group" style={{ display: 'flex', flexDirection: 'column' }}>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '0.5rem', display: 'block' }}>Additional Requirements</label>
-                  <textarea
-                    value={projectSpec.other}
-                    onChange={(e) => setProjectSpec(prev => ({ ...prev, other: e.target.value }))}
-                    placeholder="Describe infrastructure, authentication, cloud providers, or specific feature requirements..."
-                    style={{ flex: 1, width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '1rem', padding: '0.75rem 1rem', outline: 'none', resize: 'none', minHeight: '200px' }}
-                  />
+                
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button 
+                    className="button button-ghost" 
+                    onClick={handleProposeTechStack}
+                    disabled={specProposing || isSending}
+                    style={{ background: 'rgba(99,240,210,0.05)', color: '#63f0d2', border: '1px solid rgba(99,240,210,0.2)' }}
+                  >
+                    {specProposing ? <Loader2 size={14} className="spin" /> : <Wand2 size={14} />}
+                    Propose from Chat
+                  </button>
+                  <button 
+                    className="button button-accent" 
+                    onClick={handleSaveTechStack}
+                    disabled={specSaving}
+                  >
+                    {specSaving ? <Loader2 size={14} className="spin" /> : <Save size={14} />}
+                    {specSaving ? "Saving..." : "Save Manifest"}
+                  </button>
                 </div>
               </div>
 
-              <div style={{ marginTop: 'auto', padding: '1.5rem', background: 'rgba(99,240,210,0.05)', borderRadius: '12px', border: '1px solid rgba(99,240,210,0.1)' }}>
-                <p style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.7)', lineHeight: 1.6 }}>
-                  <strong style={{ color: '#63f0d2' }}>Tip:</strong> These specifications are automatically shared with The Architect during your conversation. You can update them manually here, or the Architect will suggest updates as your project matures.
-                </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', marginTop: '1rem' }}>
+                {/* Core Foundation */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <h3 style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: '#62b7ff', letterSpacing: '0.05em' }}>Core Foundation</h3>
+                  {[
+                    { label: 'Language & Runtime', key: 'language', section: 'core' },
+                    { label: 'Primary Framework', key: 'framework', section: 'core' },
+                    { label: 'Primary Database', key: 'database', section: 'core' }
+                  ].map(field => (
+                    <div key={field.key}>
+                      <label style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '0.4rem' }}>{field.label}</label>
+                      <input
+                        type="text"
+                        value={(projectSpec as any)[field.section][field.key]}
+                        onChange={(e) => setProjectSpec(prev => {
+                          const next = { ...prev };
+                          (next as any)[field.section][field.key] = e.target.value;
+                          return next;
+                        })}
+                        placeholder="Not specified"
+                        style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', padding: '0.6rem 0.8rem', outline: 'none' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Data Layer */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <h3 style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: '#7f7dff', letterSpacing: '0.05em' }}>Data Layer</h3>
+                  {[
+                    { label: 'Caching & State', key: 'cache', section: 'data' },
+                    { label: 'Message Broker', key: 'broker', section: 'data' },
+                    { label: 'Cloud Storage', key: 'storage', section: 'data' }
+                  ].map(field => (
+                    <div key={field.key}>
+                      <label style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '0.4rem' }}>{field.label}</label>
+                      <input
+                        type="text"
+                        value={(projectSpec as any)[field.section][field.key]}
+                        onChange={(e) => setProjectSpec(prev => {
+                          const next = { ...prev };
+                          (next as any)[field.section][field.key] = e.target.value;
+                          return next;
+                        })}
+                        placeholder="Not specified"
+                        style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', padding: '0.6rem 0.8rem', outline: 'none' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Security & Infra */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <h3 style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: '#f68279', letterSpacing: '0.05em' }}>Security & Infra</h3>
+                  {[
+                    { label: 'Authentication', key: 'auth', section: 'security' },
+                    { label: 'Cloud Provider', key: 'provider', section: 'security' },
+                    { label: 'API Gateway/CDN', key: 'gateway', section: 'security' }
+                  ].map(field => (
+                    <div key={field.key}>
+                      <label style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '0.4rem' }}>{field.label}</label>
+                      <input
+                        type="text"
+                        value={(projectSpec as any)[field.section][field.key]}
+                        onChange={(e) => setProjectSpec(prev => {
+                          const next = { ...prev };
+                          (next as any)[field.section][field.key] = e.target.value;
+                          return next;
+                        })}
+                        placeholder="Not specified"
+                        style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', padding: '0.6rem 0.8rem', outline: 'none' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* Observability & Services */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <h3 style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: '#63f0d2', letterSpacing: '0.05em' }}>Services</h3>
+                  {[
+                    { label: 'Logging/Monitoring', key: 'observability', section: 'services' },
+                    { label: 'External APIs', key: 'external_apis', section: 'services' }
+                  ].map(field => (
+                    <div key={field.key}>
+                      <label style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '0.4rem' }}>{field.label}</label>
+                      <input
+                        type="text"
+                        value={(projectSpec as any)[field.section][field.key]}
+                        onChange={(e) => setProjectSpec(prev => {
+                          const next = { ...prev };
+                          (next as any)[field.section][field.key] = e.target.value;
+                          return next;
+                        })}
+                        placeholder="Not specified"
+                        style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '0.9rem', padding: '0.6rem 0.8rem', outline: 'none' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom Fields */}
+              <div style={{ padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', marginTop: '1rem' }}>
+                <div className="row spaced" style={{ marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', color: 'rgba(255,255,255,0.6)', letterSpacing: '0.05em' }}>Custom Requirements</h3>
+                  <button className="button button-ghost" onClick={addCustomField} style={{ fontSize: '0.7rem', padding: '0.2rem 0.6rem' }}>
+                    <Plus size={12} /> Add Field
+                  </button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' }}>
+                  {projectSpec.custom.map((field, index) => (
+                    <div key={index} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
+                      <div style={{ flex: 1 }}>
+                        <input
+                          type="text"
+                          value={field.key}
+                          onChange={(e) => updateCustomField(index, e.target.value, field.value)}
+                          placeholder="Key"
+                          style={{ width: '100%', background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px 8px 0 0', color: '#fff', fontSize: '0.8rem', padding: '0.4rem 0.6rem', outline: 'none' }}
+                        />
+                        <input
+                          type="text"
+                          value={field.value}
+                          onChange={(e) => updateCustomField(index, field.key, e.target.value)}
+                          placeholder="Value"
+                          style={{ width: '100%', background: 'rgba(0,0,0,0.1)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '0 0 8px 8px', color: '#fff', fontSize: '0.8rem', padding: '0.4rem 0.6rem', outline: 'none' }}
+                        />
+                      </div>
+                      <button className="button button-ghost" onClick={() => removeCustomField(index)} style={{ padding: '0.5rem', color: '#f45e52' }}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             </section>
           )}
@@ -1251,6 +1478,98 @@ export default function HomePage() {
           )}
         </section>
       </section>
+
+      {/* Review Proposal Modal */}
+      {showProposalModal && proposals && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(12px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '2rem' }}>
+          <div style={{ background: '#0a0c12', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '28px', width: '100%', maxWidth: '1000px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 48px 96px rgba(0,0,0,0.8)' }}>
+            <div style={{ padding: '2rem 2.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <Wand2 size={24} style={{ color: '#63f0d2' }} />
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: 800 }}>Review AI Recommendations</h2>
+                </div>
+                <p className="muted" style={{ fontSize: '0.9rem', marginTop: '0.4rem' }}>The Architect has analyzed your conversation. Review and merge the findings.</p>
+              </div>
+              <button onClick={() => setShowProposalModal(false)} style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', padding: '0.5rem', borderRadius: '50%' }}>
+                <X size={24} />
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '2.5rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: '1.5rem', marginBottom: '1.5rem', padding: '0 1.5rem', opacity: 0.5 }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Category</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Current Value</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>AI Suggestion</span>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
+                {[
+                  { key: 'core', label: 'Core Foundation', color: '#62b7ff' },
+                  { key: 'data', label: 'Data Layer', color: '#7f7dff' },
+                  { key: 'security', label: 'Security & Infra', color: '#f68279' },
+                  { key: 'services', label: 'Services', color: '#63f0d2' }
+                ].map(section => (
+                  <div key={section.key}>
+                    <h3 style={{ fontSize: '0.8rem', fontWeight: 900, textTransform: 'uppercase', color: section.color, letterSpacing: '0.1em', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: '4px', height: '12px', background: section.color, borderRadius: '2px' }} />
+                      {section.label}
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {Object.keys((proposals as any)[section.key]).map(fieldKey => {
+                        const path = `${section.key}.${fieldKey}`;
+                        const currentValue = (projectSpec as any)[section.key][fieldKey];
+                        const proposedValue = (proposals as any)[section.key][fieldKey];
+                        const isDifferent = proposedValue && (currentValue !== proposedValue);
+                        const isAccepted = acceptedProposals[path];
+
+                        if (!proposedValue) return null;
+
+                        return (
+                          <div 
+                            key={fieldKey} 
+                            onClick={() => setAcceptedProposals(prev => ({ ...prev, [path]: !prev[path] }))}
+                            style={{ 
+                              display: 'grid', 
+                              gridTemplateColumns: '1fr 1fr 1.2fr', 
+                              gap: '1.5rem', 
+                              padding: '1.25rem 1.5rem', 
+                              background: isAccepted ? 'rgba(99,240,210,0.08)' : isDifferent ? 'rgba(255,165,0,0.04)' : 'rgba(255,255,255,0.02)', 
+                              borderRadius: '16px', 
+                              border: isAccepted ? '1px solid rgba(99,240,210,0.4)' : isDifferent ? '1px solid rgba(255,165,0,0.2)' : '1px solid rgba(255,255,255,0.05)',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                              alignItems: 'center',
+                              position: 'relative'
+                            }}
+                          >
+                            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'rgba(255,255,255,0.8)' }}>{fieldKey.charAt(0).toUpperCase() + fieldKey.slice(1).replace('_', ' ')}</div>
+                            <div style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.4)', fontStyle: !currentValue ? 'italic' : 'normal' }}>{currentValue || 'Not set'}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                {isDifferent && <ChevronRight size={14} style={{ color: '#63f0d2' }} />}
+                                <div style={{ fontSize: '0.95rem', color: isDifferent ? '#63f0d2' : '#fff', fontWeight: isDifferent ? 800 : 400 }}>{proposedValue}</div>
+                              </div>
+                              <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: isAccepted ? '#63f0d2' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: isAccepted ? 'none' : '1px solid rgba(255,255,255,0.1)' }}>
+                                {isAccepted && <Check size={14} color="#0a0c12" strokeWidth={3} />}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ padding: '2rem 2.5rem', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'flex-end', gap: '1.25rem', background: 'rgba(255,255,255,0.02)', borderRadius: '0 0 28px 28px' }}>
+              <button className="button button-ghost" onClick={() => setShowProposalModal(false)} style={{ padding: '0.75rem 1.5rem' }}>Discard Changes</button>
+              <button className="button button-accent" onClick={applyProposals} style={{ padding: '0.75rem 2rem', fontSize: '1rem' }}>Apply Selected Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

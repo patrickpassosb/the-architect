@@ -25,6 +25,7 @@ import {
   decomposeGoalIntoSubtasks,
   enqueueArtifactGenerationJob,
   generateMistralAssistantResponse,
+  generateMistralTechStackProposal,
   generateArchitectureBlueprint,
   generateDesignSummary,
   getArtifactById,
@@ -41,10 +42,11 @@ import {
   getSessionMessageCount,
   getAllMessages,
   insertArtifact,
-  runVibeInSandbox
+  runVibeInSandbox,
+  updateSessionTechStack
 } from "@the-architect/core";
-import * as sharedTypes from "../../../packages/shared-types/dist/index.js";
-import type { AssistantResponse, Mode } from "../../../packages/shared-types/dist/index.js";
+import * as sharedTypes from "@the-architect/shared-types";
+import type { AssistantResponse, Mode } from "@the-architect/shared-types";
 
 // Import Zod schemas for request and response validation
 const {
@@ -66,7 +68,11 @@ const {
   sessionIdParamsSchema,
   saveLayoutRequestSchema,
   saveLayoutResponseSchema,
-  getBlueprintResponseSchema
+  getBlueprintResponseSchema,
+  updateTechStackRequestSchema,
+  updateTechStackResponseSchema,
+  getTechStackResponseSchema,
+  proposeTechStackResponseSchema
 } = sharedTypes;
 
 /**
@@ -146,7 +152,7 @@ const env = {
     process.env.MISTRAL_API_URL ?? "https://api.mistral.ai/v1/chat/completions",
   elevenLabsApiKey: process.env.ELEVENLABS_API_KEY ?? "",
   elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID ?? "JBFqnCBsd6RMkjVDRZzb",
-  elevenLabsModelId: process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2",
+  elevenLabsVoiceModelId: process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2",
   sandboxImage: process.env.SANDBOX_DOCKER_IMAGE ?? "architect-vibe-image",
   sandboxMemoryLimit: process.env.SANDBOX_MEMORY_LIMIT ?? "2g",
   sandboxCpuLimit: parseFloat(process.env.SANDBOX_CPU_LIMIT ?? "1.0"),
@@ -447,16 +453,22 @@ function summarizeMessageForContext(row: StoredMessageRow): string {
 }
 
 async function buildChatContext(db: Awaited<ReturnType<typeof openDatabase>>, sessionId: string): Promise<string> {
+  const session = await getSessionById(db, sessionId);
+  let techStackContext = "";
+  if (session?.tech_stack) {
+    techStackContext = `[CONFIRMED TECH STACK]\n${session.tech_stack}\n\n`;
+  }
+
   // Full history: Fetch ALL messages for the session
   const allMessages = await getAllMessages(db, sessionId);
   const lines = allMessages.map((row) => summarizeMessageForContext(row as StoredMessageRow));
-  const joined = lines.join("\n");
+  const joined = techStackContext + lines.join("\n");
   // If context is very large, use latest design summary + recent messages
   if (joined.length > 12_000) {
     const summary = await getLatestDesignSummary(db, sessionId);
     if (summary) {
       const recentLines = lines.slice(-10);
-      return `[Design Summary]\n${summary.summary}\n\n[Recent Messages]\n${recentLines.join("\n")}`;
+      return `${techStackContext}[Design Summary]\n${summary.summary}\n\n[Recent Messages]\n${recentLines.join("\n")}`;
     }
     // Fallback: take the last 12k characters
     return joined.slice(joined.length - 12_000);
@@ -655,7 +667,7 @@ async function start(): Promise<void> {
         },
         body: JSON.stringify({
           text: body.text,
-          model_id: env.elevenLabsModelId,
+          model_id: env.elevenLabsVoiceModelId,
           voice_settings: {
             stability: 0.35,
             similarity_boost: 0.7
@@ -701,6 +713,65 @@ async function start(): Promise<void> {
     });
 
     return reply.status(201).send(payload);
+  });
+
+  app.get("/api/sessions/:id/tech-stack", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    const techStack = session.tech_stack ? JSON.parse(session.tech_stack) : null;
+    const payload = getTechStackResponseSchema.parse({ tech_stack: techStack });
+    return reply.status(200).send(payload);
+  });
+
+  app.patch("/api/sessions/:id/tech-stack", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const body = updateTechStackRequestSchema.parse(request.body);
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    await updateSessionTechStack(db, session.id, JSON.stringify(body.tech_stack));
+
+    const payload = updateTechStackResponseSchema.parse({ success: true });
+    return reply.status(200).send(payload);
+  });
+
+  app.post("/api/sessions/:id/tech-stack/propose", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    if (!env.mistralApiKey) {
+      return reply.status(500).send({ error: "MISTRAL_API_KEY not configured" });
+    }
+
+    const chatContext = await buildChatContext(db, session.id);
+
+    try {
+      const proposals = await generateMistralTechStackProposal({
+        apiKey: env.mistralApiKey,
+        model: env.mistralModel,
+        chatHistory: chatContext,
+        apiUrl: env.mistralApiUrl
+      });
+
+      const payload = proposeTechStackResponseSchema.parse({ proposals });
+      return reply.status(200).send(payload);
+    } catch (error) {
+      app.log.error({ error }, "Failed to generate tech stack proposal");
+      const message = error instanceof Error ? error.message : "Proposal generation failed";
+      return reply.status(502).send({ error: message });
+    }
   });
 
   /**

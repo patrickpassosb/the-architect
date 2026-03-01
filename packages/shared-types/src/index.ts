@@ -72,6 +72,51 @@ export const createSessionResponseSchema = z.object({
 });
 
 /**
+ * Technical Manifest (Tech Stack) Schemas
+ */
+export const techStackSchema = z.object({
+  core: z.object({
+    language: z.string().default(""),
+    framework: z.string().default(""),
+    database: z.string().default("")
+  }).default({}),
+  data: z.object({
+    cache: z.string().default(""),
+    broker: z.string().default(""),
+    storage: z.string().default("")
+  }).default({}),
+  security: z.object({
+    auth: z.string().default(""),
+    provider: z.string().default(""),
+    gateway: z.string().default("")
+  }).default({}),
+  services: z.object({
+    observability: z.string().default(""),
+    external_apis: z.string().default("")
+  }).default({}),
+  custom: z.array(z.object({
+    key: z.string(),
+    value: z.string()
+  })).default([])
+});
+
+export const updateTechStackRequestSchema = z.object({
+  tech_stack: techStackSchema
+});
+
+export const updateTechStackResponseSchema = z.object({
+  success: z.boolean()
+});
+
+export const getTechStackResponseSchema = z.object({
+  tech_stack: techStackSchema.nullable()
+});
+
+export const proposeTechStackResponseSchema = z.object({
+  proposals: techStackSchema
+});
+
+/**
  * Messaging Schemas
  */
 
@@ -302,3 +347,8 @@ export type SaveLayoutRequest = z.infer<typeof saveLayoutRequestSchema>;
 export type SaveLayoutResponse = z.infer<typeof saveLayoutResponseSchema>;
 export type GetBlueprintResponse = z.infer<typeof getBlueprintResponseSchema>;
 export type DesignSummary = z.infer<typeof designSummarySchema>;
+export type TechStack = z.infer<typeof techStackSchema>;
+export type UpdateTechStackRequest = z.infer<typeof updateTechStackRequestSchema>;
+export type UpdateTechStackResponse = z.infer<typeof updateTechStackResponseSchema>;
+export type GetTechStackResponse = z.infer<typeof getTechStackResponseSchema>;
+export type ProposeTechStackResponse = z.infer<typeof proposeTechStackResponseSchema>;

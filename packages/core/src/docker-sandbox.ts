@@ -1,6 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable } from "node:stream";
 
+function stripAnsi(str: string): string {
+  return str.replace(
+    /[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
+    ""
+  );
+}
+
 export interface SandboxConfig {
   image: string;
   memoryLimit: string;
@@ -86,8 +93,12 @@ export async function runVibeInSandbox(
             return;
           }
         } catch {
-          // raw line
+          // raw line - strip ANSI codes for clean display
+          displayData = stripAnsi(line);
         }
+
+        // Always strip ANSI from final output
+        displayData = stripAnsi(displayData);
 
         const message = JSON.stringify({
           type: "build_log",

@@ -13,7 +13,7 @@ import * as sharedTypes from "../../shared-types/dist/index.js";
 import type { AssistantResponse, Mode } from "../../shared-types/dist/index.js";
 
 // We use the shared schema to validate the AI's response before using it.
-const { assistantResponseSchema } = sharedTypes;
+const { assistantResponseSchema, techStackSchema } = sharedTypes;
 
 const DEFAULT_MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions";
 
@@ -47,23 +47,23 @@ type MistralChoiceResponse = {
  */
 function buildSystemPrompt(mode: Mode): string {
   return [
-    "You are The Architect, an objective Senior Systems Architect and technical co-founder.",
-    "Your goal is to mature the user's idea through deep discovery and expert trade-off analysis.",
+    "You are The Architect, a Senior Systems Design Engineer. Your persona is cold, calm, and mathematically precise.",
+    "Your objective is to provide rigorous technical analysis and architectural guidance based on first principles.",
     `Current mode: ${mode}.`,
     "",
     "CONVERSATIONAL RULES:",
-    "1. Introduce yourself warmly if it's the start of a session.",
-    "2. FOCUS ON DISCOVERY: Ask targeted questions about project goals, backend/frontend preferences, and database needs.",
-    "3. BE OBJECTIVE: Do not push any specific tool unless it fits the user's requirements. Explain trade-offs clearly.",
-    "4. DYNAMIC MATURATION: Use the 'decision' field to reflect the current technical consensus (e.g., 'Backend: Go (Confirmed), Frontend: ?').",
-    "5. NO PRE-MADE TEMPLATES: Every architecture must be a unique result of the conversation.",
+    "1. TONE: Be objective and dispassionate. Do not use exclamation points. Avoid conversational filler or excessive warmth. Focus on the engineering problem at hand.",
+    "2. PRECISION: Use technical and mathematical terminology where appropriate (e.g., latency, throughput, complexity, CAP theorem, first principles).",
+    "3. DISCOVERY: Ask 1-2 focused questions to gather required technical constraints (SLAs, traffic patterns, data consistency needs).",
+    "4. TRADE-OFF ANALYSIS: Always weigh technical decisions against mathematical and engineering constraints. Explain why one choice is superior to another for a specific use case.",
+    "5. FORMATTING: Use Markdown for structure. Lead with technical findings. Keep blocks of text concise and focused.",
     "",
     "STRICT OUTPUT RULES:",
-    "- Respond ONLY with strict JSON. No markdown, no text outside the JSON.",
+    "- Respond ONLY with strict JSON. No text outside the JSON.",
     "- Output shape: { \"summary\": \"string\", \"decision\": \"string\", \"next_actions\": [\"string\"] }",
-    "- 'summary': Your primary conversational response. Use this for greetings, explanations, and questions.",
-    "- 'decision': A technical summary of the tech stack confirmed or suggested so far.",
-    "- 'next_actions': 1-3 short, clickable suggested answers for the user.",
+    "- 'summary': Your dispassionate technical response. Use Markdown here.",
+    "- 'decision': A rigorous summary of the technical manifest state.",
+    "- 'next_actions': 1-3 concise technical next steps.",
   ].join("\n");
 }
 
@@ -153,6 +153,7 @@ export async function generateMistralAssistantResponse(
         body: JSON.stringify({
           model: input.model,
           temperature: 0.2, // Lower temperature makes the AI more focused/less creative.
+          response_format: { type: "json_object" },
           messages: [
             {
               role: "system",
@@ -188,6 +189,76 @@ export async function generateMistralAssistantResponse(
     return assistantResponseSchema.parse(parsed);
   } finally {
     // Ensure the request is canceled if it's still running.
+    controller.abort();
+  }
+}
+
+/**
+ * Specialized Function: Generates a Technical Manifest proposal.
+ */
+export async function generateMistralTechStackProposal(input: {
+  apiKey: string;
+  model: string;
+  chatHistory: string;
+  apiUrl?: string;
+  timeoutMs?: number;
+}): Promise<sharedTypes.TechStack> {
+  const controller = new AbortController();
+  const timeoutMs = input.timeoutMs ?? 30_000;
+
+  const systemPrompt = [
+    "You are The Architect, an expert technical co-founder.",
+    "Analyze the conversation history and propose a complete Technical Manifest.",
+    "Return ONLY strict JSON matching this schema:",
+    "{",
+    "  \"core\": { \"language\": \"string\", \"framework\": \"string\", \"database\": \"string\" },",
+    "  \"data\": { \"cache\": \"string\", \"broker\": \"string\", \"storage\": \"string\" },",
+    "  \"security\": { \"auth\": \"string\", \"provider\": \"string\", \"gateway\": \"string\" },",
+    "  \"services\": { \"observability\": \"string\", \"external_apis\": \"string\" },",
+    "  \"custom\": [{ \"key\": \"string\", \"value\": \"string\" }]",
+    "}",
+    "Fill in as much as possible based on context. Leave unknown fields as empty strings."
+  ].join("\n");
+
+  try {
+    const response = await Promise.race([
+      fetch(input.apiUrl ?? DEFAULT_MISTRAL_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: input.model,
+          temperature: 0.2,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `Context:\n${input.chatHistory}` }
+          ]
+        }),
+        signal: controller.signal
+      }),
+      new Promise<Response>((_resolve, reject) => {
+        setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Tech stack proposal timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      })
+    ]);
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Mistral API error: ${response.status} - ${errorBody.slice(0, 300)}`);
+    }
+
+    const payload = (await response.json()) as MistralChoiceResponse;
+    const rawContent = payload.choices?.[0]?.message?.content;
+    const normalized = normalizeContent(rawContent);
+    const parsed = parseJsonObject(normalized);
+
+    return techStackSchema.parse(parsed);
+  } finally {
     controller.abort();
   }
 }
@@ -264,7 +335,7 @@ const SERVICE_ICON_MAP: Record<string, string> = {
   monitoring: "https://cdn.simpleicons.org/grafana/F46800",
   logging: "https://cdn.simpleicons.org/grafana/F46800",
   notification: "https://cdn.simpleicons.org/twilio/F22F46",
-  email: "https://cdn.simpleicons.org/gmail/EA4335",
+  email: "https://gmail.simpleicons.org/EA4335",
   payment: "https://cdn.simpleicons.org/stripe/635BFF"
 };
 

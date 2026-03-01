@@ -26,6 +26,10 @@ import {
   sendMessageResponseSchema,
   synthesizeVoiceRequestSchema,
   synthesizeVoiceResponseSchema,
+  updateTechStackRequestSchema,
+  updateTechStackResponseSchema,
+  getTechStackResponseSchema,
+  proposeTechStackResponseSchema,
   type ArtifactDetail,
   type ArtifactListItem,
   type CreateSessionRequest,
@@ -40,7 +44,12 @@ import {
   type SendMessageRequest,
   type SendMessageResponse,
   type SynthesizeVoiceRequest,
-  type SynthesizeVoiceResponse
+  type SynthesizeVoiceResponse,
+  type TechStack,
+  type UpdateTechStackRequest,
+  type UpdateTechStackResponse,
+  type GetTechStackResponse,
+  type ProposeTechStackResponse
 } from "@the-architect/shared-types";
 import { z } from "zod";
 
@@ -275,5 +284,40 @@ export async function saveLayout(
       body: JSON.stringify(parsed)
     },
     saveLayoutResponseSchema
+  );
+}
+
+export async function getTechStack(
+  sessionId: string
+): Promise<GetTechStackResponse> {
+  return requestJson(
+    `/api/sessions/${sessionId}/tech-stack`,
+    { method: "GET" },
+    getTechStackResponseSchema
+  );
+}
+
+export async function updateTechStack(
+  sessionId: string,
+  payload: UpdateTechStackRequest
+): Promise<UpdateTechStackResponse> {
+  const parsed = updateTechStackRequestSchema.parse(payload);
+  return requestJson(
+    `/api/sessions/${sessionId}/tech-stack`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(parsed)
+    },
+    updateTechStackResponseSchema
+  );
+}
+
+export async function proposeTechStack(
+  sessionId: string
+): Promise<ProposeTechStackResponse> {
+  return requestJson(
+    `/api/sessions/${sessionId}/tech-stack/propose`,
+    { method: "POST", body: JSON.stringify({}) },
+    proposeTechStackResponseSchema
   );
 }
