@@ -10,29 +10,40 @@ For the hackathon MVP, we use **filesystem-level isolation**:
 
 ---
 
-## Phase 1: Docker Containerization (Scale-up)
+## Phase 1: Docker Containerization (Scale-up) - ✅ IMPLEMENTED
 In this phase, we move the "Workbench" into a **Docker Container**.
 
 ### 1. Architecture
-- **API Server:** Orchestrates the build.
-- **Worker:** Spawns a dedicated Docker container per build request.
+- **API Server:** Orchestrates the build and spawns Docker containers.
+- **Sandbox:** Dedicated Docker container per build request with resource limits.
 - **Volume Mounts:** Only the specific project sub-directory is mounted into `/workspace` inside the container.
 
-### 2. Benefits
-- **System Safety:** Even a destructive hallucination (`rm -rf /`) only affects the temporary container environment, leaving the host OS and other users' data untouched.
-- **Resource Quotas:** Limit the agent to specific CPU/Memory to prevent "Fork Bomb" attacks or resource exhaustion.
-- **Environment Parity:** Every agent starts with a fresh, identical "Gold Image" (Ubuntu/Node.js/Python), eliminating "it works on my machine" bugs.
+### 2. Implementation Details
+- **Module:** `packages/core/src/docker-sandbox.ts` provides `runVibeInSandbox()` function
+- **Configuration:** Environment variables in `.env.example`:
+  - `SANDBOX_DOCKER_IMAGE` - Docker image name (you provide this)
+  - `SANDBOX_MEMORY_LIMIT` - Memory limit (default: 2g)
+  - `SANDBOX_CPU_LIMIT` - CPU limit (default: 1.0)
+  - `PROJECTS_ROOT` - Where session projects are stored
+- **Container Lifecycle:** Containers are automatically removed after build (`--rm` flag)
+- **Streaming:** Build logs are streamed back to the client via Redis SSE
 
-### 3. Implementation Plan
+### 3. Usage
+Builds now run inside Docker containers:
 ```bash
-# Example Spawning Logic
 docker run --rm \
-  --name "build-agent-{session-id}" \
+  --name "architect-build-{session-id}-{timestamp}" \
   --memory "2g" --cpus "1.0" \
   -v "./projects/{session-id}:/workspace" \
+  --workdir "/workspace" \
   architect-vibe-image \
   vibe --workdir /workspace -p "{prompt}" --agent auto-approve
 ```
+
+### 4. Benefits
+- **System Safety:** Even a destructive hallucination (`rm -rf /`) only affects the temporary container environment, leaving the host OS and other users' data untouched.
+- **Resource Quotas:** Limit the agent to specific CPU/Memory to prevent "Fork Bomb" attacks or resource exhaustion.
+- **Environment Parity:** Every agent starts with a fresh, identical "Gold Image", eliminating "it works on my machine" bugs.
 
 ---
 

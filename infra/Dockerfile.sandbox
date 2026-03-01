@@ -1,0 +1,33 @@
+# The Architect Sandbox - Secure Build Agent
+# This Dockerfile defines a hardened, isolated environment for the AI agent to build projects.
+
+FROM node:20-slim
+
+# Install system dependencies for 'vibe' and common build tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    git \
+    python3 \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Mistral Vibe CLI globally inside the container
+RUN curl -fsSL https://get.vibe.sh | sh \
+    && mv /root/.local/bin/vibe /usr/local/bin/vibe
+
+# Create a non-root user for execution safety
+RUN useradd -m sandboxuser
+WORKDIR /workspace
+RUN chown -R sandboxuser:sandboxuser /workspace
+
+# Switch to the non-root user
+USER sandboxuser
+
+# Environment setup for Vibe
+ENV HOME=/home/sandboxuser
+ENV PATH="/usr/local/bin:${PATH}"
+
+# The container expects the project to be mounted at /workspace
+# Entry point: run vibe with provided arguments
+ENTRYPOINT ["vibe"]

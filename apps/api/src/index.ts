@@ -40,7 +40,8 @@ import {
   getLatestDesignSummary,
   getSessionMessageCount,
   getAllMessages,
-  insertArtifact
+  insertArtifact,
+  runVibeInSandbox
 } from "@the-architect/core";
 import * as sharedTypes from "../../../packages/shared-types/dist/index.js";
 import type { AssistantResponse, Mode } from "../../../packages/shared-types/dist/index.js";
@@ -133,6 +134,7 @@ loadEnvironment();
 /**
  * Central Configuration object
  */
+const repoRoot = findRepoRoot(process.cwd());
 const env = {
   host: process.env.HOST ?? "0.0.0.0",
   port: Number(process.env.PORT ?? "4000"),
@@ -144,7 +146,11 @@ const env = {
     process.env.MISTRAL_API_URL ?? "https://api.mistral.ai/v1/chat/completions",
   elevenLabsApiKey: process.env.ELEVENLABS_API_KEY ?? "",
   elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID ?? "JBFqnCBsd6RMkjVDRZzb",
-  elevenLabsModelId: process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2"
+  elevenLabsModelId: process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2",
+  sandboxImage: process.env.SANDBOX_DOCKER_IMAGE ?? "architect-vibe-image",
+  sandboxMemoryLimit: process.env.SANDBOX_MEMORY_LIMIT ?? "2g",
+  sandboxCpuLimit: parseFloat(process.env.SANDBOX_CPU_LIMIT ?? "1.0"),
+  projectsRoot: process.env.PROJECTS_ROOT ?? path.join(repoRoot, "projects")
 };
 
 // basic safety check
@@ -1052,19 +1058,23 @@ async function start(): Promise<void> {
           context: contextParts.join("\n\n")
         });
 
-        const subArgs = ["--workdir", sessionProjectDir, "-p", subPrompt, "--max-turns", body.dry_run ? "4" : "15", "--output", "streaming"];
-        if (body.dry_run) {
-          subArgs.push("--agent", "plan");
-        } else {
-          subArgs.push("--agent", "auto-approve");
-        }
-
         const subStartedAt = Date.now();
-        return runCommand("vibe", subArgs, {
-          cwd: sessionProjectDir,
-          timeoutMs: body.dry_run ? 60_000 : 300_000,
-          streaming: { publisher: redisPublisher, channel, agentLabel }
-        }).then((result) => ({
+        return runVibeInSandbox(
+          session.id,
+          subPrompt,
+          {
+            image: env.sandboxImage,
+            memoryLimit: env.sandboxMemoryLimit,
+            cpuLimit: env.sandboxCpuLimit,
+            workdir: sessionProjectDir
+          },
+          {
+            maxTurns: body.dry_run ? 4 : 15,
+            dryRun: body.dry_run ?? false,
+            timeoutMs: body.dry_run ? 60_000 : 300_000,
+            streaming: { publisher: redisPublisher, channel, agentLabel }
+          }
+        ).then((result) => ({
           agent: agentLabel,
           task,
           status: (result.timedOut ? "timed_out" : result.exitCode === 0 ? "completed" : "failed") as "completed" | "failed" | "timed_out",
@@ -1119,27 +1129,31 @@ async function start(): Promise<void> {
       context: contextParts.join("\n\n")
     });
 
-    const commandArgs = ["--workdir", sessionProjectDir, "-p", prompt, "--max-turns", body.dry_run ? "4" : "15", "--output", "streaming"];
-    if (body.dry_run) {
-      commandArgs.push("--agent", "plan");
-    } else {
-      commandArgs.push("--agent", "auto-approve");
-    }
-
     let commandResult: CommandResult;
     try {
-      commandResult = await runCommand("vibe", commandArgs, {
-        cwd: sessionProjectDir,
-        timeoutMs: body.dry_run ? 60_000 : 300_000,
-        streaming: { publisher: redisPublisher, channel, agentLabel: "Vibe" }
-      });
+      commandResult = await runVibeInSandbox(
+        session.id,
+        prompt,
+        {
+          image: env.sandboxImage,
+          memoryLimit: env.sandboxMemoryLimit,
+          cpuLimit: env.sandboxCpuLimit,
+          workdir: sessionProjectDir
+        },
+        {
+          maxTurns: body.dry_run ? 4 : 15,
+          dryRun: body.dry_run ?? false,
+          timeoutMs: body.dry_run ? 60_000 : 300_000,
+          streaming: { publisher: redisPublisher, channel, agentLabel: "Vibe" }
+        }
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown Vibe execution error";
       const looksLikeMissingBinary =
         message.toLowerCase().includes("enoent") || message.toLowerCase().includes("not found");
       return reply.status(looksLikeMissingBinary ? 501 : 500).send({
         error: looksLikeMissingBinary
-          ? "Vibe CLI is not available on this host. Install `vibe` to enable build automation."
+          ? "Docker or sandbox image is not available. Ensure Docker is running and SANDBOX_DOCKER_IMAGE is set."
           : message
       });
     }

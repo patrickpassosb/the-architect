@@ -213,6 +213,14 @@ export default function HomePage() {
   const [isSending, setIsSending] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
 
+  // Project Spec State
+  const [projectSpec, setProjectSpec] = useState({
+    backend: "",
+    frontend: "",
+    database: "",
+    other: ""
+  });
+
   // The actual list of messages shown in the UI
   const [thread, setThread] = useState<ThreadMessage[]>([]);
 
@@ -263,6 +271,13 @@ export default function HomePage() {
 
     return null;
   }, [thread]);
+
+  const nextActionChips = useMemo(() => {
+    if (latestAssistantMessage?.role === "assistant") {
+      return latestAssistantMessage.content.next_actions;
+    }
+    return [];
+  }, [latestAssistantMessage]);
 
   const loadLatestArchitecture = useCallback(async (
     id: string,
@@ -424,8 +439,12 @@ export default function HomePage() {
       ]);
 
       try {
+        // Prepare context-aware content including current project spec
+        const specSummary = `Current Project Spec: Backend=${projectSpec.backend || "?"}, Frontend=${projectSpec.frontend || "?"}, Database=${projectSpec.database || "?"}, Other=${projectSpec.other || "None"}`;
+        const contextualContent = `[${specSummary}]\n\n${content}`;
+
         // Send to API
-        const response = await sendMessage(sessionId, { content, source });
+        const response = await sendMessage(sessionId, { content: contextualContent, source });
 
         // Add AI response to UI
         setThread((current) => [
@@ -453,7 +472,7 @@ export default function HomePage() {
         setIsSending(false);
       }
     },
-    [clearVoiceTranscript, loadArtifacts, sessionId]
+    [clearVoiceTranscript, loadArtifacts, sessionId, projectSpec]
   );
 
   /**
@@ -756,23 +775,74 @@ export default function HomePage() {
           </div>
 
           <nav className="sidebar-nav" aria-label="Primary">
-            {sidebarItems.map((item) => {
-              const isActive = item.panel === activePanel;
-              const Icon = item.icon;
+            <div className="sidebar-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {sidebarItems.slice(0, 1).map((item) => {
+                const isActive = item.panel === activePanel;
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.name}
+                    type="button"
+                    className={`sidebar-link ${isActive ? "sidebar-link-active" : ""}`}
+                    onClick={() => setActivePanel(item.panel)}
+                  >
+                    <Icon className="sidebar-icon" size={18} />
+                    {item.name}
+                  </button>
+                );
+              })}
+            </div>
 
-              return (
-                <button
-                  key={item.name}
-                  type="button"
-                  className={`sidebar-link ${isActive ? "sidebar-link-active" : ""}`}
-                  aria-current={isActive ? "page" : undefined}
-                  onClick={() => setActivePanel(item.panel)}
-                >
-                  <Icon className="sidebar-icon" size={18} />
-                  {item.name}
-                </button>
-              );
-            })}
+            {/* Project Spec Section */}
+            <div className="project-spec-panel" style={{ margin: '1.5rem 0.75rem', padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05rem', color: 'rgba(255,255,255,0.4)', marginBottom: '0.75rem', fontWeight: 700 }}>Project Spec</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                {[
+                  { label: 'Backend', key: 'backend', placeholder: 'e.g. Go, Rust' },
+                  { label: 'Frontend', key: 'frontend', placeholder: 'e.g. React, Vue' },
+                  { label: 'Database', key: 'database', placeholder: 'e.g. Postgres' }
+                ].map((field) => (
+                  <div key={field.key}>
+                    <label style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '0.2rem' }}>{field.label}</label>
+                    <input
+                      type="text"
+                      value={projectSpec[field.key as keyof typeof projectSpec]}
+                      onChange={(e) => setProjectSpec(prev => ({ ...prev, [field.key]: e.target.value }))}
+                      placeholder={field.placeholder}
+                      style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '0.8rem', padding: '0.2rem 0', outline: 'none' }}
+                    />
+                  </div>
+                ))}
+                <div>
+                  <label style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '0.2rem' }}>Other</label>
+                  <textarea
+                    value={projectSpec.other}
+                    onChange={(e) => setProjectSpec(prev => ({ ...prev, other: e.target.value }))}
+                    placeholder="Auth, Cloud, etc..."
+                    rows={2}
+                    style={{ width: '100%', background: 'transparent', border: 'none', color: '#fff', fontSize: '0.8rem', outline: 'none', resize: 'none' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="sidebar-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+              {sidebarItems.slice(1).map((item) => {
+                const isActive = item.panel === activePanel;
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.name}
+                    type="button"
+                    className={`sidebar-link ${isActive ? "sidebar-link-active" : ""}`}
+                    onClick={() => setActivePanel(item.panel)}
+                  >
+                    <Icon className="sidebar-icon" size={18} />
+                    {item.name}
+                  </button>
+                );
+              })}
+            </div>
           </nav>
 
           <div className="sidebar-footer">
@@ -825,107 +895,112 @@ export default function HomePage() {
 
           {activePanel === "chat" && (
             <>
-              <section className="conversation" style={{ padding: 0, margin: 0, border: 'none', background: 'transparent', boxShadow: 'none' }}>
-                <div className="message-stack">
+              <section className="conversation" style={{ padding: '1rem', margin: 0, border: 'none', background: 'transparent', boxShadow: 'none', flex: 1, overflowY: 'auto' }}>
+                <div className="message-stack" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                   {thread.map((message) => {
-                    if (message.role === "user") {
-                      return (
-                        <article key={message.id} className="message message-user">
-                          <p className="message-meta">You ({message.source})</p>
-                          <p className="message-body">{message.content}</p>
-                        </article>
-                      );
-                    }
-
-                    const isSpeaking = speakingId === message.id;
-
+                    const isUser = message.role === "user";
                     return (
-                      <article key={message.id} className="message message-assistant">
-                        <div className="row spaced assistant-toolbar">
-                          <p className="message-meta">Architect ({message.source})</p>
-                          <button
-                            className="button button-ghost"
+                      <article 
+                        key={message.id} 
+                        className={`message ${isUser ? 'message-user' : 'message-assistant'}`}
+                        style={{
+                          alignSelf: isUser ? 'flex-end' : 'flex-start',
+                          maxWidth: '80%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.4rem'
+                        }}
+                      >
+                        <p style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', textAlign: isUser ? 'right' : 'left', padding: '0 0.5rem' }}>
+                          {isUser ? 'You' : 'Architect'}
+                        </p>
+                        <div style={{
+                          background: isUser ? '#f45e52' : 'rgba(255,255,255,0.05)',
+                          color: '#fff',
+                          padding: '0.8rem 1.2rem',
+                          borderRadius: isUser ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
+                          border: isUser ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                          lineHeight: 1.5,
+                          fontSize: '0.95rem'
+                        }}>
+                          {isUser ? message.content : message.content.summary}
+                        </div>
+                        {!isUser && (
+                           <button
                             onClick={() => void speakAssistant(message.id, message.content)}
-                            disabled={isSpeaking || isSending}
-                          >
-                            {isSpeaking ? (
-                              <>
-                                <Loader2 size={14} className="spin" /> Generating Voice
-                              </>
-                            ) : (
-                              <>
-                                <Volume2 size={14} /> Speak
-                              </>
-                            )}
-                          </button>
-                        </div>
-                        <div className="assistant-structured">
-                          <section>
-                            <h2>Summary</h2>
-                            <p>{message.content.summary}</p>
-                          </section>
-                          <section>
-                            <h2>Decision</h2>
-                            <p>{message.content.decision}</p>
-                          </section>
-                          <section>
-                            <h2>Next Actions</h2>
-                            {message.content.next_actions.length === 0 ? (
-                              <p className="muted">No next actions returned.</p>
-                            ) : (
-                              <ol>
-                                {message.content.next_actions.map((item, index) => (
-                                  <li key={`${item}-${index}`}>{item}</li>
-                                ))}
-                              </ol>
-                            )}
-                          </section>
-                        </div>
+                            style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: '0.7rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0 0.5rem' }}
+                           >
+                             <Volume2 size={12} /> {speakingId === message.id ? 'Generating...' : 'Speak'}
+                           </button>
+                        )}
                       </article>
                     );
                   })}
 
                   {isSending && (
-                    <article className="message message-assistant">
-                      <p className="message-meta">Architect</p>
-                      <p className="muted">Thinking...</p>
-                    </article>
+                    <div style={{ alignSelf: 'flex-start', background: 'rgba(255,255,255,0.03)', padding: '0.8rem 1.2rem', borderRadius: '20px', fontSize: '0.9rem', color: 'rgba(255,255,255,0.4)' }}>
+                      Architect is thinking...
+                    </div>
                   )}
                   <div ref={threadBottomRef} />
                 </div>
               </section>
 
-              {thread.length === 0 && (
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-                  {[
-                    "Design a scalable microservices architecture for an e-commerce platform.",
-                    "Define a serverless backend using AWS Lambda and API Gateway.",
-                    "Plan an AI-powered data pipeline with real-time streaming."
-                  ].map((suggestion, index) => (
-                    <button
-                      key={index}
-                      onClick={() => void send("text", suggestion)}
-                      disabled={!sessionId || isSending}
-                      style={{
-                        background: 'rgba(255,255,255,0.05)',
-                        border: '1px solid rgba(255,255,255,0.1)',
-                        color: 'rgba(255,255,255,0.8)',
-                        padding: '0.5rem 1rem',
-                        borderRadius: '16px',
-                        fontSize: '0.85rem',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                      }}
-                      onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)' }}
-                      onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)' }}
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {/* Chips and Composer */}
+              <div style={{ padding: '1rem', marginTop: 'auto' }}>
+                {nextActionChips.length > 0 && !isSending && (
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem', justifyContent: 'center' }}>
+                    {nextActionChips.map((chip, index) => (
+                      <button
+                        key={index}
+                        onClick={() => void send("text", chip)}
+                        style={{
+                          background: 'rgba(99,240,210,0.1)',
+                          border: '1px solid rgba(99,240,210,0.3)',
+                          color: '#63f0d2',
+                          padding: '0.4rem 1rem',
+                          borderRadius: '20px',
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                        }}
+                        onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(99,240,210,0.2)' }}
+                        onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(99,240,210,0.1)' }}
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
-              <section className="composer panel" style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderRadius: '20px', background: 'rgba(15,20,30,0.6)', border: '1px solid rgba(255,255,255,0.1)', marginTop: 'auto' }}>
+                {thread.length === 0 && (
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem', justifyContent: 'center' }}>
+                    {[
+                      "Hi Architect, can you help me build a new app?",
+                      "I want to design a microservices system.",
+                      "What's the best tech stack for a real-time chat?"
+                    ].map((suggestion, index) => (
+                      <button
+                        key={index}
+                        onClick={() => void send("text", suggestion)}
+                        disabled={!sessionId || isSending}
+                        style={{
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          color: 'rgba(255,255,255,0.8)',
+                          padding: '0.5rem 1rem',
+                          borderRadius: '16px',
+                          fontSize: '0.85rem',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <section className="composer panel" style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderRadius: '20px', background: 'rgba(15,20,30,0.6)', border: '1px solid rgba(255,255,255,0.1)' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
                   {(voice.isRecording || voice.fullTranscript) && (
                     <div style={{ fontSize: '0.85rem', color: '#8fb3df', background: 'rgba(14,25,45,0.6)', padding: '0.5rem 1rem', borderRadius: '8px', marginBottom: '0.5rem', border: '1px solid rgba(123,177,245,0.2)' }}>
@@ -992,10 +1067,9 @@ export default function HomePage() {
                   </div>
                 </div>
               </section>
-
-
-            </>
-          )}
+            </div>
+          </>
+        )}
 
           {activePanel === "architecture" && (
             <section style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.75rem", minHeight: 0 }}>
