@@ -391,8 +391,6 @@ async function start(): Promise<void> {
   // 4. Graceful Shutdown: Close connections when the server stops
   await app.register(FastifySSEPlugin);
 
-  const artifactQueue = createArtifactQueue(env.redisUrl);
-
   const redisSubscriber = new Redis(env.redisUrl);
   redisSubscriber.setMaxListeners(0); // Prevent warnings for many connected clients
 

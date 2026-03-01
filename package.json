@@ -25,6 +25,8 @@
     "// redis_explanation": "Helper commands for managing the Redis container via Docker.",
     "redis:up": "docker compose -f infra/docker-compose.yml up -d redis",
     "redis:down": "docker compose -f infra/docker-compose.yml down",
+    "// workflow_docker_loop_explanation": "Runs the Docker-based integration validation loop used by agent workflows.",
+    "workflow:docker-loop": "bash scripts/agent-docker-loop.sh",
     "// test_integration_explanation": "Runs the integration tests (requires services to be running).",
     "test:integration": "node tests/integration.mjs",
     "test:smoke": "REQUIRE_PROVIDER_SUCCESS=1 node tests/integration.mjs",

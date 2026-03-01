@@ -1,4 +1,4 @@
-# The Architect
+# ⬡ The Architect
 
 **Voice-first AI technical cofounder for hackathons and fast product execution.**
 
