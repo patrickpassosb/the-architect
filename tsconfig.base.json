@@ -1,15 +1,31 @@
 {
-  /* Base TypeScript configuration for all packages and apps in the monorepo. */
+  /**
+   * @fileoverview Base TypeScript configuration for all packages and apps in the monorepo.
+   *
+   * Problem: We want all our services (API, Worker, Shared Packages)
+   * to follow the same coding standards and compile consistently.
+   *
+   * Solution: Define a central 'base' configuration that other 'tsconfig.json'
+   * files can inherit from (using the 'extends' keyword).
+   */
   "compilerOptions": {
+    // Compile code to the latest version of JavaScript
     "target": "ESNext",
+    // Use the latest Node.js module system (ESM)
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    // Catch as many mistakes as possible during compilation
     "strict": true,
+    // Enable better compatibility between CommonJS and ES Modules
     "esModuleInterop": true,
+    // Faster compilation by not checking types for third-party libraries
     "skipLibCheck": true,
+    // Ensure 'File.ts' and 'file.ts' are treated as different (important for Linux/macOS)
     "forceConsistentCasingInFileNames": true,
+    // Generate .d.ts files for TypeScript types
     "declaration": true,
     "declarationMap": true,
+    // Generate .map files to help debug original source code from compiled JS
     "sourceMap": true
   }
 }

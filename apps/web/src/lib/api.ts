@@ -1,3 +1,15 @@
+/**
+ * @fileoverview API Client for the 'The Architect' Frontend.
+ *
+ * Problem: The Next.js frontend needs a clean, reliable way to talk
+ * to the Fastify API (running on port 4000). We need to handle
+ * network errors, JSON parsing, and data validation.
+ *
+ * Solution: A set of asynchronous functions that use the browser's
+ * 'fetch' API. We use the same Zod schemas as the backend to
+ * ensure the data we send and receive is correct.
+ */
+
 import {
   artifactDetailSchema,
   createSessionRequestSchema,
@@ -14,8 +26,15 @@ import {
 } from "@the-architect/shared-types";
 import { z } from "zod";
 
+// Base URL for the API (loaded from environment variables)
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
+/**
+ * Custom Error class for API-related issues.
+ *
+ * Problem: Standard Error objects don't include HTTP status codes.
+ * Solution: Extend the Error class to include a 'status' field (e.g., 404, 500).
+ */
 export class ApiError extends Error {
   readonly status?: number;
 
@@ -26,14 +45,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Helper: Build the full URL for an API request.
+ */
 function getApiUrl(pathname: string): string {
   const base = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
   return `${base}${pathname}`;
 }
 
+/**
+ * Helper: Extract the error message from an API response body.
+ */
 async function parseError(response: Response): Promise<string> {
   try {
     const payload = await response.json();
+    // Look for common error fields (message or error)
     if (typeof payload?.message === "string" && payload.message.length > 0) {
       return payload.message;
     }
@@ -42,12 +68,19 @@ async function parseError(response: Response): Promise<string> {
       return payload.error;
     }
   } catch {
-    // Ignore JSON parse errors and fall through to status text.
+    // If JSON parsing fails, use the default status text (e.g., "Internal Server Error")
   }
 
   return response.statusText || "Unknown API error";
 }
 
+/**
+ * Generic Request Function
+ *
+ * Problem: Fetching JSON involves many repetitive steps (headers, status checks, parsing).
+ * Solution: A single reusable function that handles all the common logic
+ * and validates the final result against a Zod schema.
+ */
 async function requestJson<TSchema extends z.ZodTypeAny>(
   pathname: string,
   options: RequestInit,
@@ -62,12 +95,15 @@ async function requestJson<TSchema extends z.ZodTypeAny>(
         "Content-Type": "application/json",
         ...(options.headers ?? {})
       },
+      // Ensure we always get the freshest data from the server
       cache: "no-store"
     });
   } catch {
+    // This happens if the server is down or the network is disconnected
     throw new ApiError("API unavailable");
   }
 
+  // Handle HTTP error statuses (4xx and 5xx)
   if (!response.ok) {
     const message = await parseError(response);
     throw new ApiError(message, response.status);
@@ -75,6 +111,7 @@ async function requestJson<TSchema extends z.ZodTypeAny>(
 
   const json = await response.json();
 
+  // Safety: Validate that the data the server sent back matches our expectations
   try {
     return schema.parse(json);
   } catch {
@@ -82,6 +119,9 @@ async function requestJson<TSchema extends z.ZodTypeAny>(
   }
 }
 
+/**
+ * API Call: Create a new session.
+ */
 export async function createSession(
   payload: CreateSessionRequest
 ): Promise<CreateSessionResponse> {
@@ -96,6 +136,9 @@ export async function createSession(
   );
 }
 
+/**
+ * API Call: Send a message (text or voice) to the AI.
+ */
 export async function sendMessage(
   sessionId: string,
   payload: SendMessageRequest
@@ -111,10 +154,16 @@ export async function sendMessage(
   );
 }
 
+/**
+ * API Call: Get a list of documents for a session.
+ */
 export async function getArtifacts(sessionId: string): Promise<ArtifactListItem[]> {
   return requestJson(`/api/sessions/${sessionId}/artifacts`, { method: "GET" }, listArtifactsResponseSchema);
 }
 
+/**
+ * API Call: Get the full content of a specific document.
+ */
 export async function getArtifact(artifactId: string): Promise<ArtifactDetail> {
   return requestJson(`/api/artifacts/${artifactId}`, { method: "GET" }, artifactDetailSchema);
 }

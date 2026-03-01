@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Main Page for the 'The Architect' Web Application.
+ *
+ * Problem: Users need a high-quality, real-time interface to talk to the AI,
+ * record their voice, and view generated technical documents (artifacts).
+ *
+ * Solution: A Next.js 15 React component that manages the state of the chat
+ * (the 'thread'), the active session, and the list of documents. It uses
+ * Tailwind CSS for styling and Lucide for icons.
+ */
+
 "use client";
 
 import {
@@ -13,7 +24,10 @@ import { MessageSquare, LayoutDashboard, FileText, Settings, BotMessageSquare } 
 import { ApiError, createSession, getArtifact, getArtifacts, sendMessage } from "@/lib/api";
 import { useVoiceTranscript } from "@/hooks/useVoiceTranscript";
 
+// Default behavior settings
 const DEFAULT_MODE: Mode = "architect";
+
+// Navigation items for the sidebar
 const sidebarItems = [
   { name: "Chat", icon: MessageSquare },
   { name: "Sessions", icon: LayoutDashboard },
@@ -22,6 +36,9 @@ const sidebarItems = [
   { name: "Settings", icon: Settings },
 ] as const;
 
+/**
+ * Define what a message looks like in our local UI state.
+ */
 type ThreadMessage =
   | {
     id: string;
@@ -36,6 +53,9 @@ type ThreadMessage =
     content: AssistantResponse;
   };
 
+/**
+ * Helper: Extract a readable string from various error types.
+ */
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     return error.message;
@@ -48,6 +68,9 @@ function getErrorMessage(error: unknown): string {
   return "Unexpected error";
 }
 
+/**
+ * Helper: Ensure JSON data is an object, not a string.
+ */
 function normalizeJsonPayload(payload: unknown): unknown {
   if (typeof payload !== "string") {
     return payload;
@@ -60,6 +83,9 @@ function normalizeJsonPayload(payload: unknown): unknown {
   }
 }
 
+/**
+ * Helper: Shorten long IDs for display (e.g., "abcd...1234").
+ */
 function formatSessionId(id: string | null): string {
   if (!id) {
     return "Not created";
@@ -72,15 +98,30 @@ function formatSessionId(id: string | null): string {
   return `${id.slice(0, 8)}...${id.slice(-8)}`;
 }
 
+/**
+ * Helper: Generate a temporary unique ID for messages before they are saved.
+ */
 function createMessageId(prefix: "user" | "assistant"): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * Main React Component
+ */
 export default function HomePage() {
+  // Voice Recording Hook (Logic is separated for cleanliness)
   const voice = useVoiceTranscript();
   const clearVoiceTranscript = voice.clearTranscript;
+
+  // Ref used to automatically scroll to the bottom of the chat
   const threadBottomRef = useRef<HTMLDivElement | null>(null);
 
+  /**
+   * React State Management
+   * Problem: React needs to "remember" things like the current session ID
+   * and the messages in the chat.
+   * Solution: Use 'useState' hooks to track these values.
+   */
   const [mode, setMode] = useState<Mode>(DEFAULT_MODE);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionLoading, setSessionLoading] = useState(false);
@@ -90,8 +131,10 @@ export default function HomePage() {
   const [isSending, setIsSending] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
 
+  // The actual list of messages shown in the UI
   const [thread, setThread] = useState<ThreadMessage[]>([]);
 
+  // Documents (Artifacts) state
   const [artifacts, setArtifacts] = useState<ArtifactListItem[]>([]);
   const [artifactsLoading, setArtifactsLoading] = useState(false);
   const [artifactsError, setArtifactsError] = useState<string | null>(null);
@@ -99,6 +142,9 @@ export default function HomePage() {
   const [artifactLoading, setArtifactLoading] = useState(false);
   const [artifactError, setArtifactError] = useState<string | null>(null);
 
+  /**
+   * Action: Start a new session.
+   */
   const createNewSession = useCallback(async () => {
     setSessionLoading(true);
     setSessionError(null);
@@ -106,6 +152,7 @@ export default function HomePage() {
     try {
       const response = await createSession({ mode });
       setSessionId(response.id);
+      // Reset UI state for the new session
       setArtifacts([]);
       setSelectedArtifact(null);
       setThread([]);
@@ -118,6 +165,9 @@ export default function HomePage() {
     }
   }, [clearVoiceTranscript, mode]);
 
+  /**
+   * Action: Load the list of documents for the current session.
+   */
   const loadArtifacts = useCallback(async (id: string) => {
     setArtifactsLoading(true);
     setArtifactsError(null);
@@ -132,10 +182,16 @@ export default function HomePage() {
     }
   }, []);
 
+  /**
+   * Effect: Automatically create a session when the app first loads.
+   */
   useEffect(() => {
     void createNewSession();
   }, [createNewSession]);
 
+  /**
+   * Effect: Fetch documents whenever the session ID changes.
+   */
   useEffect(() => {
     if (!sessionId) {
       return;
@@ -144,10 +200,20 @@ export default function HomePage() {
     void loadArtifacts(sessionId);
   }, [loadArtifacts, sessionId]);
 
+  /**
+   * Effect: Keep the chat scrolled to the bottom.
+   */
   useEffect(() => {
     threadBottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [thread, isSending]);
 
+  /**
+   * Action: Send a message (Text or Voice).
+   *
+   * Problem: We want the UI to feel fast.
+   * Solution: "Optimistic UI" - Add the user's message to the thread
+   * immediately before the API call finishes.
+   */
   const send = useCallback(
     async (source: Source, rawContent: string) => {
       if (!sessionId) {
@@ -162,6 +228,8 @@ export default function HomePage() {
 
       setIsSending(true);
       setRequestError(null);
+
+      // Add user message to UI immediately
       setThread((current) => [
         ...current,
         {
@@ -173,7 +241,10 @@ export default function HomePage() {
       ]);
 
       try {
+        // Send to API
         const response = await sendMessage(sessionId, { content, source });
+
+        // Add AI response to UI
         setThread((current) => [
           ...current,
           {
@@ -184,12 +255,14 @@ export default function HomePage() {
           }
         ]);
 
+        // Cleanup input fields
         if (source === "text") {
           setDraftMessage("");
         } else {
           clearVoiceTranscript();
         }
 
+        // Refresh documents (as one might have been generated)
         await loadArtifacts(sessionId);
       } catch (error) {
         setRequestError(getErrorMessage(error));
@@ -200,6 +273,9 @@ export default function HomePage() {
     [clearVoiceTranscript, loadArtifacts, sessionId]
   );
 
+  /**
+   * Action: View a specific document's details.
+   */
   const openArtifact = useCallback(async (artifactId: string) => {
     setArtifactLoading(true);
     setArtifactError(null);
@@ -214,6 +290,9 @@ export default function HomePage() {
     }
   }, []);
 
+  /**
+   * Memoized Value: Format the JSON for pretty display.
+   */
   const prettyJson = useMemo(() => {
     if (!selectedArtifact?.content_json) {
       return null;
@@ -226,6 +305,7 @@ export default function HomePage() {
   return (
     <main className="chat-app">
       <section className="workspace-shell">
+        {/* Sidebar: Navigation and Branding */}
         <aside className="sidebar">
           <div className="sidebar-brand">
             <h2 className="brand-title">
@@ -254,6 +334,7 @@ export default function HomePage() {
           </div>
         </aside>
 
+        {/* Main Chat Area */}
         <section className="chat-shell">
           <header className="chat-header">
             <div className="heading-group">
@@ -262,6 +343,7 @@ export default function HomePage() {
             </div>
 
             <div className="topbar-actions">
+              {/* Mode Selector (Architect, Planner, Pitch) */}
               <label className="field compact" htmlFor="mode-select">
                 Mode
                 <select
@@ -281,6 +363,7 @@ export default function HomePage() {
             </div>
           </header>
 
+          {/* Error Notifications */}
           {(sessionError || requestError) && (
             <section className="status status-error">
               {sessionError && <p>Session error: {sessionError}</p>}
@@ -288,6 +371,7 @@ export default function HomePage() {
             </section>
           )}
 
+          {/* Voice Compatibility Warnings */}
           {voice.isSupported === false && (
             <section className="status status-warning">
               Speech recognition is unavailable in this browser. You can still send text messages.
@@ -300,6 +384,7 @@ export default function HomePage() {
             </section>
           )}
 
+          {/* Conversation History */}
           <section className="conversation panel">
             <div className="message-stack">
               {thread.length === 0 && (
@@ -319,6 +404,7 @@ export default function HomePage() {
                   );
                 }
 
+                // AI Response - Structured for easy reading
                 return (
                   <article key={message.id} className="message message-assistant">
                     <p className="message-meta">Assistant ({message.source})</p>
@@ -348,6 +434,7 @@ export default function HomePage() {
                 );
               })}
 
+              {/* Thinking state for AI */}
               {isSending && (
                 <article className="message message-assistant">
                   <p className="message-meta">Assistant</p>
@@ -358,6 +445,7 @@ export default function HomePage() {
             </div>
           </section>
 
+          {/* Message Composer (Text and Voice) */}
           <section className="composer panel">
             <label className="field" htmlFor="text-message">
               Message
@@ -384,6 +472,7 @@ export default function HomePage() {
               </button>
             </div>
 
+            {/* Voice Input Section */}
             <div className="voice-tools">
               <div className="row">
                 <button
@@ -423,6 +512,7 @@ export default function HomePage() {
             </div>
           </section>
 
+          {/* Documents (Artifacts) Viewer */}
           <section className="artifact-shell panel">
             <div className="row spaced">
               <h2>Artifacts</h2>
@@ -438,6 +528,7 @@ export default function HomePage() {
             {artifactsError && <p className="status-inline status-error">{artifactsError}</p>}
 
             <div className="artifact-grid">
+              {/* List of document titles */}
               <ul className="artifact-list">
                 {!sessionId && <li className="muted">Create a session to load artifacts.</li>}
                 {sessionId && !artifactsLoading && artifacts.length === 0 && <li className="muted">No artifacts yet for this session.</li>}
@@ -459,6 +550,7 @@ export default function HomePage() {
                 })}
               </ul>
 
+              {/* Full Document Detail */}
               <article className="detail">
                 <h3>Artifact Detail</h3>
                 {artifactLoading && <p className="muted">Loading artifact...</p>}
@@ -470,9 +562,11 @@ export default function HomePage() {
                     <p className="muted detail-meta">
                       {selectedArtifact.title ?? "Untitled"} ({selectedArtifact.kind})
                     </p>
+                    {/* Render the Markdown content nicely */}
                     <div className="markdown-frame">
                       <ReactMarkdown>{selectedArtifact.content_md || "_No markdown content_"}</ReactMarkdown>
                     </div>
+                    {/* Show the machine-readable JSON part */}
                     <div className="json-block">
                       <h4>JSON Payload</h4>
                       <pre>{prettyJson ?? "No JSON payload returned for this artifact."}</pre>

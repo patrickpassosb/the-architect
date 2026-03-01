@@ -1,9 +1,20 @@
+/**
+ * @fileoverview Logic for generating high-quality technical documents (artifacts).
+ *
+ * Problem: Once the AI gives us a structured JSON response, we need to turn it into
+ * a professional-looking document (Markdown) and a machine-readable data format (JSON).
+ *
+ * Solution: This module takes the AI's response and transforms it into
+ * 'Artifact' objects that can be stored in the database and shown to the user.
+ */
+
 import { randomUUID } from "node:crypto";
 import type {
   ArtifactGenerationJobPayload,
   ArtifactKind
 } from "@the-architect/shared-types";
 
+// Type definition for a document we just generated
 export type GeneratedArtifact = {
   id: string;
   session_id: string;
@@ -13,14 +24,23 @@ export type GeneratedArtifact = {
   content_json: string;
 };
 
+/**
+ * Helper: Provides a user-friendly name for each type of document.
+ */
 function modeTitle(kind: ArtifactKind) {
   if (kind === "architecture") return "Architecture Draft";
   if (kind === "tasks") return "Task Plan";
   return "Pitch Pack";
 }
 
+/**
+ * Problem: Users want a clear, readable Markdown document they can share or print.
+ * Solution: Combine the user's input and the AI's response into a structured
+ * Markdown template.
+ */
 function toMarkdown(kind: ArtifactKind, payload: ArtifactGenerationJobPayload): string {
   const assistant = payload.context.assistant;
+  // Convert the array of 'next actions' into a bulleted list for Markdown
   const actions = assistant.next_actions.map((action) => `- ${action}`).join("\n");
 
   return [
@@ -44,10 +64,17 @@ function toMarkdown(kind: ArtifactKind, payload: ArtifactGenerationJobPayload): 
   ].join("\n");
 }
 
+/**
+ * Main Function: Creates one or more documents from a background job payload.
+ *
+ * Problem: One user request might require multiple types of artifacts.
+ * Solution: Map over the 'artifact_kinds' requested and generate each one.
+ */
 export function generateArtifactsFromJob(
   payload: ArtifactGenerationJobPayload
 ): GeneratedArtifact[] {
   return payload.context.artifact_kinds.map((kind) => {
+    // Machine-readable data structure
     const content_json_value = {
       session: payload.session,
       kind,
@@ -60,7 +87,7 @@ export function generateArtifactsFromJob(
     };
 
     return {
-      id: randomUUID(),
+      id: randomUUID(), // Unique ID for this document
       session_id: payload.session.id,
       kind,
       title: `${modeTitle(kind)} - ${new Date().toISOString().slice(0, 10)}`,
