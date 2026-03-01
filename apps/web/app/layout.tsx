@@ -11,7 +11,7 @@
 import type { Metadata } from "next";
 import { Manrope, Sora } from "next/font/google";
 import type { ReactNode } from "react";
-import "./globals.css";
+import "./site.css";
 
 // Configure high-quality fonts for a professional "SaaS" feel
 const headingFont = Sora({

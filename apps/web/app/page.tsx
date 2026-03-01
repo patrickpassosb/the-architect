@@ -32,7 +32,8 @@ import {
   Loader2,
   Sparkles,
   Mic,
-  Square
+  Square,
+  ClipboardList
 } from "lucide-react";
 import {
   ApiError,
@@ -53,7 +54,7 @@ import ArchitectureCanvas from "@/components/ArchitectureCanvas";
 // Default behavior settings
 const DEFAULT_MODE: Mode = "architect";
 
-type WorkspacePanel = "chat" | "architecture" | "build";
+type WorkspacePanel = "chat" | "project-spec" | "architecture" | "build";
 
 const sidebarItems: Array<{
   name: string;
@@ -61,6 +62,7 @@ const sidebarItems: Array<{
   icon: React.ComponentType<{ className?: string; size?: number }>;
 }> = [
     { name: "Chat", panel: "chat", icon: MessageSquare },
+    { name: "Project Spec", panel: "project-spec", icon: ClipboardList },
     { name: "Architecture", panel: "architecture", icon: LayoutDashboard },
     { name: "Build with Vibe", panel: "build", icon: Hammer }
   ];
@@ -768,66 +770,14 @@ export default function HomePage() {
         <aside className="sidebar">
           <div className="sidebar-brand">
             <h2 className="brand-title">
-              <span className="brand-icon">*</span>
+              <span className="brand-icon">⬡</span>
               The Architect
             </h2>
-            <p className="kicker">AI Co-founder Workspace</p>
           </div>
 
           <nav className="sidebar-nav" aria-label="Primary">
             <div className="sidebar-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              {sidebarItems.slice(0, 1).map((item) => {
-                const isActive = item.panel === activePanel;
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.name}
-                    type="button"
-                    className={`sidebar-link ${isActive ? "sidebar-link-active" : ""}`}
-                    onClick={() => setActivePanel(item.panel)}
-                  >
-                    <Icon className="sidebar-icon" size={18} />
-                    {item.name}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Project Spec Section */}
-            <div className="project-spec-panel" style={{ margin: '1.5rem 0.75rem', padding: '1rem', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05rem', color: 'rgba(255,255,255,0.4)', marginBottom: '0.75rem', fontWeight: 700 }}>Project Spec</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                {[
-                  { label: 'Backend', key: 'backend', placeholder: 'e.g. Go, Rust' },
-                  { label: 'Frontend', key: 'frontend', placeholder: 'e.g. React, Vue' },
-                  { label: 'Database', key: 'database', placeholder: 'e.g. Postgres' }
-                ].map((field) => (
-                  <div key={field.key}>
-                    <label style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '0.2rem' }}>{field.label}</label>
-                    <input
-                      type="text"
-                      value={projectSpec[field.key as keyof typeof projectSpec]}
-                      onChange={(e) => setProjectSpec(prev => ({ ...prev, [field.key]: e.target.value }))}
-                      placeholder={field.placeholder}
-                      style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.1)', color: '#fff', fontSize: '0.8rem', padding: '0.2rem 0', outline: 'none' }}
-                    />
-                  </div>
-                ))}
-                <div>
-                  <label style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)', display: 'block', marginBottom: '0.2rem' }}>Other</label>
-                  <textarea
-                    value={projectSpec.other}
-                    onChange={(e) => setProjectSpec(prev => ({ ...prev, other: e.target.value }))}
-                    placeholder="Auth, Cloud, etc..."
-                    rows={2}
-                    style={{ width: '100%', background: 'transparent', border: 'none', color: '#fff', fontSize: '0.8rem', outline: 'none', resize: 'none' }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="sidebar-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              {sidebarItems.slice(1).map((item) => {
+              {sidebarItems.map((item) => {
                 const isActive = item.panel === activePanel;
                 const Icon = item.icon;
                 return (
@@ -900,8 +850,8 @@ export default function HomePage() {
                   {thread.map((message) => {
                     const isUser = message.role === "user";
                     return (
-                      <article 
-                        key={message.id} 
+                      <article
+                        key={message.id}
                         className={`message ${isUser ? 'message-user' : 'message-assistant'}`}
                         style={{
                           alignSelf: isUser ? 'flex-end' : 'flex-start',
@@ -920,18 +870,21 @@ export default function HomePage() {
                           padding: '0.8rem 1.2rem',
                           borderRadius: isUser ? '20px 20px 4px 20px' : '20px 20px 20px 4px',
                           border: isUser ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                          lineHeight: 1.5,
-                          fontSize: '0.95rem'
+                          lineHeight: 1.6,
+                          fontSize: '0.95rem',
+                          textAlign: 'left'
                         }}>
-                          {isUser ? message.content : message.content.summary}
+                          <ReactMarkdown className="chat-markdown">
+                            {isUser ? message.content : message.content.summary}
+                          </ReactMarkdown>
                         </div>
                         {!isUser && (
-                           <button
+                          <button
                             onClick={() => void speakAssistant(message.id, message.content)}
                             style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: '0.7rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', padding: '0 0.5rem' }}
-                           >
-                             <Volume2 size={12} /> {speakingId === message.id ? 'Generating...' : 'Speak'}
-                           </button>
+                          >
+                            <Volume2 size={12} /> {speakingId === message.id ? 'Generating...' : 'Speak'}
+                          </button>
                         )}
                       </article>
                     );
@@ -1000,76 +953,141 @@ export default function HomePage() {
                   </div>
                 )}
 
-                <section className="composer panel" style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderRadius: '20px', background: 'rgba(15,20,30,0.6)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
-                  {(voice.isRecording || voice.fullTranscript) && (
-                    <div style={{ fontSize: '0.85rem', color: '#8fb3df', background: 'rgba(14,25,45,0.6)', padding: '0.5rem 1rem', borderRadius: '8px', marginBottom: '0.5rem', border: '1px solid rgba(123,177,245,0.2)' }}>
-                      <span style={{ fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem', marginRight: '0.25rem' }}>Transcript:</span>
-                      {voice.fullTranscript || <span style={{ opacity: 0.5 }}>Listening...</span>}
-                    </div>
-                  )}
+                <section className="composer" style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderRadius: '20px', background: 'rgba(15,20,30,0.6)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                    {(voice.isRecording || voice.fullTranscript) && (
+                      <div style={{ fontSize: '0.85rem', color: '#8fb3df', background: 'rgba(14,25,45,0.6)', padding: '0.5rem 1rem', borderRadius: '8px', marginBottom: '0.5rem', border: '1px solid rgba(123,177,245,0.2)' }}>
+                        <span style={{ fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem', marginRight: '0.25rem' }}>Transcript:</span>
+                        {voice.fullTranscript || <span style={{ opacity: 0.5 }}>Listening...</span>}
+                      </div>
+                    )}
 
-                  <textarea
-                    id="text-message"
-                    value={draftMessage}
-                    onChange={(event) => setDraftMessage(event.target.value)}
-                    placeholder="Message (↵ to send, Shift+↵ for line breaks...)"
-                    rows={1}
-                    disabled={!sessionId || isSending}
-                    style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.95rem', resize: 'none', outline: 'none', minHeight: '44px', padding: '0.5rem 0' }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        if (draftMessage.trim() || voice.fullTranscript.trim()) {
+                    <textarea
+                      id="text-message"
+                      value={draftMessage}
+                      onChange={(event) => setDraftMessage(event.target.value)}
+                      placeholder="Message (↵ to send, Shift+↵ for line breaks...)"
+                      rows={1}
+                      disabled={!sessionId || isSending}
+                      style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.95rem', resize: 'none', outline: 'none', minHeight: '44px', padding: '0.5rem 0' }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          if (draftMessage.trim() || voice.fullTranscript.trim()) {
+                            if (voice.fullTranscript.trim() && !draftMessage.trim()) {
+                              void send("voice", voice.fullTranscript);
+                            } else {
+                              void send("text", draftMessage);
+                            }
+                          }
+                        }
+                      }}
+                    />
+
+                    <div className="composer-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div className="composer-actions-left" style={{ display: 'flex', gap: '0.5rem' }}>
+                        {voice.isRecording ? (
+                          <button style={{ background: '#f45e52', color: '#fff', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={voice.stopRecording} aria-label="Stop Recording">
+                            <Square size={14} fill="currentColor" />
+                          </button>
+                        ) : (
+                          <button style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={() => void voice.startRecording()} disabled={!sessionId || isSending} aria-label="Use Voice">
+                            <Mic size={16} />
+                          </button>
+                        )}
+
+                        {voice.fullTranscript && (
+                          <button style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)', border: 'none', fontSize: '0.8rem', cursor: 'pointer' }} onClick={voice.clearTranscript} disabled={isSending}>
+                            Clear
+                          </button>
+                        )}
+                      </div>
+
+                      <button
+                        style={{ background: '#f45e52', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '12px', display: 'flex', gap: '0.4rem', alignItems: 'center', fontWeight: '600', fontSize: '0.9rem', cursor: 'pointer', opacity: (!sessionId || (!draftMessage.trim() && !voice.fullTranscript.trim()) || isSending) ? 0.5 : 1 }}
+                        disabled={!sessionId || (!draftMessage.trim() && !voice.fullTranscript.trim()) || isSending}
+                        onClick={() => {
                           if (voice.fullTranscript.trim() && !draftMessage.trim()) {
                             void send("voice", voice.fullTranscript);
                           } else {
                             void send("text", draftMessage);
                           }
-                        }
-                      }
-                    }}
-                  />
-
-                  <div className="composer-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div className="composer-actions-left" style={{ display: 'flex', gap: '0.5rem' }}>
-                      {voice.isRecording ? (
-                        <button style={{ background: '#f45e52', color: '#fff', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={voice.stopRecording} aria-label="Stop Recording">
-                          <Square size={14} fill="currentColor" />
-                        </button>
-                      ) : (
-                        <button style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={() => void voice.startRecording()} disabled={!sessionId || isSending} aria-label="Use Voice">
-                          <Mic size={16} />
-                        </button>
-                      )}
-
-                      {voice.fullTranscript && (
-                        <button style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)', border: 'none', fontSize: '0.8rem', cursor: 'pointer' }} onClick={voice.clearTranscript} disabled={isSending}>
-                          Clear
-                        </button>
-                      )}
+                        }}
+                      >
+                        {isSending ? <Loader2 size={14} className="spin" /> : null}
+                        Send
+                      </button>
                     </div>
+                  </div>
+                </section>
+              </div>
+            </>
+          )}
 
-                    <button
-                      style={{ background: '#f45e52', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '12px', display: 'flex', gap: '0.4rem', alignItems: 'center', fontWeight: '600', fontSize: '0.9rem', cursor: 'pointer', opacity: (!sessionId || (!draftMessage.trim() && !voice.fullTranscript.trim()) || isSending) ? 0.5 : 1 }}
-                      disabled={!sessionId || (!draftMessage.trim() && !voice.fullTranscript.trim()) || isSending}
-                      onClick={() => {
-                        if (voice.fullTranscript.trim() && !draftMessage.trim()) {
-                          void send("voice", voice.fullTranscript);
-                        } else {
-                          void send("text", draftMessage);
-                        }
-                      }}
-                    >
-                      {isSending ? <Loader2 size={14} className="spin" /> : null}
-                      Send
-                    </button>
+          {activePanel === "project-spec" && (
+            <section className="panel" style={{ flex: 1, display: "flex", flexDirection: "column", gap: "1.5rem", padding: "2rem", maxWidth: "800px", margin: "0 auto", width: "100%", overflowY: "auto" }}>
+              <div className="row spaced">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <ClipboardList size={24} className="text-accent" style={{ color: '#63f0d2' }} />
+                  <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Project Specification</h2>
+                </div>
+                <span className="muted" style={{ fontSize: '0.85rem' }}>Define the technical foundation of your application</span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginTop: '1rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  <div className="field-group">
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '0.5rem', display: 'block' }}>Backend Stack</label>
+                    <input
+                      type="text"
+                      value={projectSpec.backend}
+                      onChange={(e) => setProjectSpec(prev => ({ ...prev, backend: e.target.value }))}
+                      placeholder="e.g. Go (Gin), Rust (Axum), Node.js (Fastify)"
+                      style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '1rem', padding: '0.75rem 1rem', outline: 'none' }}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '0.5rem', display: 'block' }}>Frontend Stack</label>
+                    <input
+                      type="text"
+                      value={projectSpec.frontend}
+                      onChange={(e) => setProjectSpec(prev => ({ ...prev, frontend: e.target.value }))}
+                      placeholder="e.g. React (Next.js), Vue (Nuxt), Svelte"
+                      style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '1rem', padding: '0.75rem 1rem', outline: 'none' }}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '0.5rem', display: 'block' }}>Database</label>
+                    <input
+                      type="text"
+                      value={projectSpec.database}
+                      onChange={(e) => setProjectSpec(prev => ({ ...prev, database: e.target.value }))}
+                      placeholder="e.g. PostgreSQL, MongoDB, Redis"
+                      style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '1rem', padding: '0.75rem 1rem', outline: 'none' }}
+                    />
                   </div>
                 </div>
-              </section>
-            </div>
-          </>
-        )}
+
+                <div className="field-group" style={{ display: 'flex', flexDirection: 'column' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: '0.5rem', display: 'block' }}>Additional Requirements</label>
+                  <textarea
+                    value={projectSpec.other}
+                    onChange={(e) => setProjectSpec(prev => ({ ...prev, other: e.target.value }))}
+                    placeholder="Describe infrastructure, authentication, cloud providers, or specific feature requirements..."
+                    style={{ flex: 1, width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '1rem', padding: '0.75rem 1rem', outline: 'none', resize: 'none', minHeight: '200px' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginTop: 'auto', padding: '1.5rem', background: 'rgba(99,240,210,0.05)', borderRadius: '12px', border: '1px solid rgba(99,240,210,0.1)' }}>
+                <p style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.7)', lineHeight: 1.6 }}>
+                  <strong style={{ color: '#63f0d2' }}>Tip:</strong> These specifications are automatically shared with The Architect during your conversation. You can update them manually here, or the Architect will suggest updates as your project matures.
+                </p>
+              </div>
+            </section>
+          )}
 
           {activePanel === "architecture" && (
             <section style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.75rem", minHeight: 0 }}>

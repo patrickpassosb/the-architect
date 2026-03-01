@@ -46,8 +46,12 @@ export function useSessionEvents(sessionId: string | null, callbacks: {
        console.log("SSE Connected:", event.data);
     });
 
+    eventSource.onopen = () => {
+      console.log("SSE Connected for session:", sessionId);
+    };
+
     eventSource.onerror = (error) => {
-      console.error("SSE Error:", error);
+      console.warn("SSE Error - connection lost, will attempt reconnect...");
     };
 
     return () => {
