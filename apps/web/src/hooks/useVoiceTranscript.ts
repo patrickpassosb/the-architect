@@ -1,7 +1,19 @@
+/**
+ * @fileoverview Custom React Hook for Voice-to-Text Transcription.
+ *
+ * Problem: We want users to be able to "speak" to the AI. This requires
+ * connecting to the browser's Microphone and using a Speech Recognition API.
+ *
+ * Solution: This hook wraps the standard Web Speech API (SpeechRecognition).
+ * It handles starting/stopping the microphone, processing "interim" results
+ * (words the AI is still guessing), and "final" results (confirmed words).
+ */
+
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+// Error categories for better UI messages
 export type VoiceErrorCode =
   | "unsupported"
   | "denied"
@@ -16,18 +28,25 @@ export type VoiceError = {
   message: string;
 };
 
+/**
+ * The data structure returned by this hook to the UI component.
+ */
 type UseVoiceTranscriptResult = {
-  isSupported: boolean | null;
-  isRecording: boolean;
-  transcript: string;
-  interimTranscript: string;
-  fullTranscript: string;
-  error: VoiceError | null;
+  isSupported: boolean | null; // Does this browser support Speech API?
+  isRecording: boolean;        // Is the microphone currently active?
+  transcript: string;          // Confirmed (final) words
+  interimTranscript: string;   // Guessing (in-progress) words
+  fullTranscript: string;      // Combination of both
+  error: VoiceError | null;    // Any errors that occurred
   startRecording: () => Promise<void>;
   stopRecording: () => void;
   clearTranscript: () => void;
 };
 
+/**
+ * Problem: Browser error messages are often technical and confusing.
+ * Solution: Map browser errors to user-friendly messages.
+ */
 function mapRecognitionError(error: string): VoiceError {
   switch (error) {
     case "not-allowed":
@@ -64,15 +83,24 @@ function mapRecognitionError(error: string): VoiceError {
   }
 }
 
+/**
+ * Helper: Find the correct SpeechRecognition object (handling browser differences).
+ */
 function getRecognitionConstructor(): SpeechRecognitionConstructor | null {
   if (typeof window === "undefined") {
     return null;
   }
 
+  // Chrome uses webkitSpeechRecognition, others use SpeechRecognition
   return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
 }
 
+/**
+ * The useVoiceTranscript Hook
+ */
 export function useVoiceTranscript(): UseVoiceTranscriptResult {
+  // Use a 'ref' to store the SpeechRecognition instance so it persists
+  // without triggering re-renders unless we want them.
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const finalTranscriptRef = useRef("");
 
@@ -82,16 +110,25 @@ export function useVoiceTranscript(): UseVoiceTranscriptResult {
   const [interimTranscript, setInterimTranscript] = useState("");
   const [error, setError] = useState<VoiceError | null>(null);
 
+  /**
+   * Effect: Check for browser support on initial load.
+   */
   useEffect(() => {
     setIsSupported(getRecognitionConstructor() !== null);
   }, []);
 
+  /**
+   * Action: Reset the transcript state.
+   */
   const clearTranscript = useCallback(() => {
     finalTranscriptRef.current = "";
     setTranscript("");
     setInterimTranscript("");
   }, []);
 
+  /**
+   * Action: Activate the microphone and start transcribing.
+   */
   const startRecording = useCallback(async () => {
     const Recognition = getRecognitionConstructor();
 
@@ -110,8 +147,10 @@ export function useVoiceTranscript(): UseVoiceTranscriptResult {
 
     setError(null);
 
+    // Initial check: Does the user even allow microphone access?
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Stop the test stream immediately after checking permission
       stream.getTracks().forEach((track) => track.stop());
     } catch {
       setError({
@@ -121,18 +160,26 @@ export function useVoiceTranscript(): UseVoiceTranscriptResult {
       return;
     }
 
+    // Reuse or create the recognition object
     const recognition = recognitionRef.current ?? new Recognition();
     recognitionRef.current = recognition;
 
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
+    // Configure recognition
+    recognition.continuous = true;      // Keep listening until we manually stop
+    recognition.interimResults = true;  // Show "guessing" words in real-time
+    recognition.lang = "en-US";         // Set language to English
 
+    // Define Event Handlers
     recognition.onstart = () => {
       setIsRecording(true);
       setError(null);
     };
 
+    /**
+     * Event: The browser has processed some speech.
+     * Problem: Results come in pieces (final and interim).
+     * Solution: Loop through all results and combine them correctly.
+     */
     recognition.onresult = (event) => {
       let interim = "";
       let finalValue = finalTranscriptRef.current;
@@ -146,6 +193,7 @@ export function useVoiceTranscript(): UseVoiceTranscriptResult {
         }
       }
 
+      // Update state so the UI shows the new text
       finalTranscriptRef.current = finalValue;
       setTranscript(finalValue);
       setInterimTranscript(interim);
@@ -160,14 +208,21 @@ export function useVoiceTranscript(): UseVoiceTranscriptResult {
       setIsRecording(false);
     };
 
+    // Actually start listening!
     recognition.start();
   }, [isRecording]);
 
+  /**
+   * Action: Turn off the microphone.
+   */
   const stopRecording = useCallback(() => {
     recognitionRef.current?.stop();
     setIsRecording(false);
   }, []);
 
+  /**
+   * Computed Value: Combine confirmed and guessing words for the UI.
+   */
   const fullTranscript = useMemo(() => {
     if (!interimTranscript) {
       return transcript;
@@ -176,6 +231,7 @@ export function useVoiceTranscript(): UseVoiceTranscriptResult {
     return `${transcript} ${interimTranscript}`.trim();
   }, [interimTranscript, transcript]);
 
+  // Return everything the UI component needs
   return {
     isSupported,
     isRecording,

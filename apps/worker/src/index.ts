@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Background Worker for 'The Architect'.
+ *
+ * Problem: Generating technical documents (artifacts) is a slow process
+ * that shouldn't block the main API response.
+ *
+ * Solution: This 'Worker' process listens to a Redis queue (BullMQ).
+ * When a new job arrives, it picks it up, generates the document
+ * using our 'core' logic, and saves the final result to the database.
+ */
+
 import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
@@ -19,8 +30,12 @@ import type { ArtifactGenerationJobPayload } from "../../../packages/shared-type
 import { loadConfig } from "./config";
 import { startHealthServer } from "./health-server";
 
+// Import Zod schemas to ensure the data in the queue is valid
 const { artifactGenerationJobPayloadSchema } = sharedTypes;
 
+/**
+ * Helper: Find the project root to load .env files.
+ */
 function findRepoRoot(startDir: string): string {
   let currentDir = startDir;
 
@@ -49,6 +64,9 @@ function findRepoRoot(startDir: string): string {
   }
 }
 
+/**
+ * Helper: Load environment variables for the worker.
+ */
 function loadEnvironment() {
   const repoRoot = findRepoRoot(process.cwd());
 
@@ -69,19 +87,33 @@ function loadEnvironment() {
   }
 }
 
+// Load env before starting
 loadEnvironment();
 
+/**
+ * Main Worker Startup Function
+ */
 async function bootstrap() {
   const config = loadConfig();
+
+  // 1. Connect to the same database the API uses
   const db = await openDatabase(config.databaseUrl);
   await runMigrations(db);
 
+
+  /**
+   * Problem: We need to process jobs one by one without losing any work.
+   * Solution: Create a BullMQ 'Worker'. It automatically pulls jobs from Redis.
+   */
+  
   const redisPublisher = new Redis(config.redisUrl);
+  // 2. Connect to Redis
   const redisConnection = createRedisConnection(config.redisUrl);
   
   const worker = new Worker<ArtifactGenerationJobPayload>(
     QUEUE_NAMES.artifactGeneration,
     async (job) => {
+      // Validate the data received from the queue
       const payload = artifactGenerationJobPayloadSchema.parse(job.data);
 
       log("info", "Processing artifact generation job", {
@@ -91,6 +123,7 @@ async function bootstrap() {
         attemptsMade: job.attemptsMade
       });
 
+      // Update the database to say this job is now 'active'
       await upsertJobStatus(db, {
         id: job.id ?? "unknown",
         session_id: payload.session.id,
@@ -98,13 +131,18 @@ async function bootstrap() {
         status: "active"
       });
 
+      // Reliability: Ensure the session still exists in the DB
       await ensureSessionExists(db, payload.session);
 
+      // Transform the AI structured response into Markdown documents
       const generatedArtifacts = generateArtifactsFromJob(payload);
+
+      // Save each generated document (artifact) to the database
       for (const artifact of generatedArtifacts) {
         await insertArtifact(db, artifact);
       }
 
+      // Return a result (saved in Redis for tracking)
       return {
         created_artifact_ids: generatedArtifacts.map((artifact) => artifact.id),
         count: generatedArtifacts.length
@@ -112,13 +150,18 @@ async function bootstrap() {
     },
     {
       connection: redisConnection,
+      // Concurrency: How many jobs can this worker run at the same time?
       concurrency: config.workerConcurrency
     }
   );
 
+  /**
+   * Event Listener: Job Completed Successfully
+   */
   worker.on("completed", async (job, result) => {
     const payload = artifactGenerationJobPayloadSchema.parse(job.data);
 
+    // Update status to 'completed' so the frontend knows the document is ready
     await upsertJobStatus(db, {
       id: job.id ?? "unknown",
       session_id: payload.session.id,
@@ -147,9 +190,13 @@ async function bootstrap() {
     }
   });
 
+  /**
+   * Event Listener: Job Failed
+   */
   worker.on("failed", async (job, err) => {
     const sessionId = job?.data?.session?.id ?? "unknown";
 
+    // Mark as 'failed' and save the error message for debugging
     await upsertJobStatus(db, {
       id: job?.id ?? "unknown",
       session_id: sessionId,
@@ -182,10 +229,14 @@ async function bootstrap() {
     }
   });
 
+  /**
+   * Event Listener: Internal Worker Error (e.g., Redis connection lost)
+   */
   worker.on("error", (err) => {
     log("error", "Worker runtime error", { error: err.message });
   });
 
+  // 3. Start a small health-check server for Docker/Kubernetes
   const server = startHealthServer(config.port, config.serviceName);
 
   log("info", "Worker started", {
@@ -194,6 +245,9 @@ async function bootstrap() {
     port: config.port
   });
 
+  /**
+   * Graceful Shutdown handlers
+   */
   const shutdown = async (signal: string) => {
     log("warn", "Shutting down worker", { signal });
 
@@ -224,6 +278,7 @@ async function bootstrap() {
   });
 }
 
+// Start the worker!
 bootstrap().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : "Unknown bootstrap error";
   log("error", "Worker failed to start", { error: message });

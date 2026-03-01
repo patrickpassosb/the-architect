@@ -1,8 +1,27 @@
+# Infrastructure Configuration using Docker Compose.
+#
+# Problem: Our application (specifically the background queue)
+# needs Redis to store tasks. Installing Redis directly on your
+# machine can be complicated and varies by operating system.
+#
+# Solution: Use Docker to run Redis in a "Container". This ensures
+# everyone on the team is running the exact same version of Redis
+# regardless of their operating system.
+#
+# To start this: npm run redis:up
+
 services:
   redis:
+    # Use the lightweight 'alpine' Linux distribution of Redis version 7
     image: redis:7-alpine
     container_name: the-architect-redis
+
+    # Connect the container's port (6379) to your machine's port (6379)
     ports:
       - "6379:6379"
+
+    # Enable 'appendonly' so data is saved to disk and not lost if Redis restarts
     command: ["redis-server", "--appendonly", "yes"]
+
+    # Automatically restart the container if it crashes
     restart: unless-stopped

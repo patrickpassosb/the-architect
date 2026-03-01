@@ -3,23 +3,30 @@
   "description": "Voice-first AI technical cofounder monorepo.",
   "private": true,
   "version": "0.1.0",
+  "// workspace_explanation": "This is an npm workspaces monorepo. It contains multiple 'apps' and 'packages' that work together.",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
+    "// build_explanation": "Builds all apps and packages in the monorepo.",
     "build": "npm run --workspaces build",
+    "// dev_explanation": "Starts the entire project (Web, API, Worker) in development mode.",
     "dev": "npm run dev:all",
     "dev:all": "bash scripts/dev-all.sh",
     "dev:api": "npm run dev -w apps/api",
     "dev:worker": "npm run dev -w apps/worker",
+    "// lint_explanation": "Checks all code for common mistakes and styling issues.",
     "lint": "npm run --workspaces lint",
+    "// test_explanation": "Runs unit tests in all packages.",
     "test": "npm run --workspaces test",
+    "// typecheck_explanation": "Ensures TypeScript is correct across all projects.",
     "typecheck": "npm run --workspaces typecheck",
+    "// redis_explanation": "Helper commands for managing the Redis container via Docker.",
     "redis:up": "docker compose -f infra/docker-compose.yml up -d redis",
     "redis:down": "docker compose -f infra/docker-compose.yml down",
+    "// test_integration_explanation": "Runs the integration tests (requires services to be running).",
     "test:integration": "node tests/integration.mjs",
-    "workflow:docker-loop": "bash scripts/agent-docker-loop.sh",
     "test:smoke": "REQUIRE_PROVIDER_SUCCESS=1 node tests/integration.mjs",
     "test:smoke:loop": "bash scripts/smoke-loop.sh"
   }

@@ -1,170 +1,155 @@
 # The Architect
 
-Voice-first AI technical cofounder for hackathons and fast product execution.
+**Voice-first AI technical cofounder for hackathons and fast product execution.**
+
+---
 
 ## What it is
-The Architect is a real-time assistant that helps builders go from idea -> architecture -> execution plan -> deliverable artifacts.
+The Architect is a real-time assistant that helps builders go from **Idea -> Architecture -> Execution Plan -> Deliverable Artifacts**.
 
 You speak, it responds with:
-- technical decisions
-- tradeoff analysis
-- implementation tasks
-- exportable project docs
+- **Technical Decisions:** Clear, actionable advice on your tech stack and architecture.
+- **Tradeoff Analysis:** Why choosing one tool over another matters for your timeline.
+- **Implementation Tasks:** A concrete list of steps to start coding immediately.
+- **Exportable Artifacts:** Auto-generated `ARCHITECTURE.md`, `TASKS.md`, and `PITCH.md`.
 
-## Core Purpose
-Accelerate high-quality technical decision making under time pressure.
+---
 
-## MVP Scope
-- Voice input + transcript
-- 3 modes: Architect / Planner / Pitch Coach
-- Real-time conversational loop
-- Artifact generation (`ARCHITECTURE.md`, `TASKS.md`, `PITCH.md`)
-- Project session persistence
+## System Architecture
 
-## Stack (MVP)
-- Frontend: Next.js + React + TypeScript + Tailwind
-- API: Fastify + TypeScript
-- Worker: BullMQ
-- Queue backend: Redis
-- Database: SQLite
-- AI models: Voxtral (realtime voice), Mistral Large (reasoning)
+### Component Map
+Shows how the Web UI, API, and Background Worker interact.
 
-## Why this architecture
-- Fast to ship in hackathon timeline
-- Strong developer ergonomics for AI coding agents
-- Reliable async processing for long tasks (BullMQ)
-- Simple persistence (SQLite) with clean migration path later
+```mermaid
+graph TD
+    subgraph Frontend [Web Application - Next.js]
+        A[Browser UI]
+        B[Web Speech API]
+    end
 
-## Repository Layout
-```txt
-apps/
-  web/      # Next.js UI
-  api/      # Fastify HTTP API + orchestration
-  worker/   # BullMQ job processors
-packages/
-  shared-types/  # zod schemas + TS types
-  prompts/       # system and mode prompts
-  core/          # orchestration/domain logic
-infra/
-  docker-compose.yml  # redis + optional local services
-docs/
-  PRD.md
-  ARCHITECTURE.md
-  SCHEMA.md
+    subgraph Backend [Backend Services - Fastify]
+        C[API Server]
+        D[SQLite Database]
+    end
+
+    subgraph Async [Background Processing - BullMQ]
+        E[Redis Queue]
+        F[Worker Process]
+    end
+
+    subgraph AI [AI Intelligence]
+        G[Mistral AI API]
+    end
+
+    A <-->|HTTP/JSON| C
+    B -->|Transcript| A
+    C <-->|Read/Write| D
+    C -->|Generate Artifact| E
+    E <-->|Job Data| F
+    F <-->|Read/Write| D
+    C <-->|Reasoning| G
 ```
 
-## Quick Start Goal
-Phase 1 target: local end-to-end loop working
-1. user speaks
-2. transcript arrives
-3. model response generated
-4. artifact job queued
-5. artifact saved and shown in UI
+### Sequence Diagram: Sending a Message
+The step-by-step flow when you speak to The Architect.
 
-## Run Entire Project (One Command)
-1. Install dependencies:
-```bash
-npm install
-```
-2. Create local env file:
-```bash
-cp .env.example .env
-```
-3. Start everything (Redis + API + Worker + Web):
-```bash
-npm run dev
-```
+```mermaid
+sequenceDiagram
+    participant U as User (Voice/Text)
+    participant W as Web UI
+    participant A as API Server
+    participant M as Mistral AI
+    participant Q as Redis Queue
+    participant WK as Worker
+    participant DB as SQLite
 
-Services:
-- Web: `http://localhost:3000`
-- API: `http://localhost:4000/api/health`
-- Worker health: `http://localhost:4100/health`
+    U->>W: Speak/Type Message
+    W->>A: POST /api/sessions/:id/messages
+    A->>DB: Save User Message
+    A->>M: Request Technical Decision
+    M-->>A: Structured JSON Response
+    A->>DB: Save Assistant Response
+    A->>Q: Enqueue 'Artifact Generation' Job
+    A-->>W: 200 OK (Immediate UI Update)
 
-If ports are already in use and you want auto-cleanup:
-```bash
-npm run dev:all -- --force
+    Note over Q,WK: Background Process
+    Q->>WK: Pick up Job
+    WK->>WK: Generate Markdown/JSON Artifacts
+    WK->>DB: Save Artifacts & Update Job Status
+
+    W->>A: GET /api/sessions/:id/artifacts (Polling)
+    A-->>W: Updated Artifact List
 ```
 
 ---
 
-If this repo is used in a hackathon, prioritize: shipping, reliability, and demo clarity over premature complexity.
+## Tech Stack
+- **Frontend:** Next.js 15, React 19, TypeScript, Tailwind CSS, Lucide Icons.
+- **API:** Fastify (Node.js), Zod (Validation).
+- **Worker:** BullMQ (Background Jobs).
+- **Queue:** Redis (Task storage).
+- **Database:** SQLite (Persistent storage).
+- **AI Models:** Mistral Large (Reasoning & Structured Output).
 
-## Run API Locally
-1. Install dependencies:
-```bash
-npm install
-```
-2. Create local env file:
-```bash
-cp .env.example .env
-```
-3. Start Redis for BullMQ:
-```bash
-docker compose -f infra/docker-compose.yml up -d redis
-```
-4. Start the API:
-```bash
-npm run dev -w apps/api
-```
-5. Verify health:
-```bash
-curl http://localhost:4000/api/health
+---
+
+## Repository Layout
+```txt
+apps/
+  web/      # Next.js Frontend
+  api/      # Fastify HTTP API & Orchestration
+  worker/   # BullMQ Background Job Processors
+packages/
+  shared-types/  # Centralized Zod schemas & TS types
+  core/          # Shared DB, AI, Queue, and Artifact logic
+infra/
+  docker-compose.yml  # Redis & local services
+docs/
+  PRD.md           # Product Requirement Document
+  ARCHITECTURE.md  # Detailed Technical Architecture
+  path.md          # Start here! Guided tour for developers
 ```
 
-Core routes:
-- `GET /api/health`
-- `POST /api/sessions`
-- `POST /api/sessions/:id/messages`
-- `GET /api/sessions/:id/artifacts`
-- `GET /api/artifacts/:id`
+---
 
-## Run Web Locally
-1. Install dependencies:
-```bash
-npm install
-```
-2. Start the API service (required by the web app) on `http://localhost:4000`.
-3. Configure web env:
-```bash
-cat > apps/web/.env.local <<'EOF'
-NEXT_PUBLIC_API_BASE_URL=http://localhost:4000
-EOF
-```
-4. Start the web app:
-```bash
-npm run dev -w apps/web
-```
-5. Open `http://localhost:3000`.
+## Quick Start (One Command)
 
-Voice notes:
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+2. **Setup environment:**
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your MISTRAL_API_KEY
+   ```
+ 
+3. **Start everything (Redis + API + Worker + Web):**
+   ```bash
+   npm run dev
+   ```
+
+- **Web:** `http://localhost:3000`
+- **API Health:** `http://localhost:4000/api/health`
+- **Worker Health:** `http://localhost:4100/health`
+
+---
+
+## Voice notes:
 - Use a Chromium-based browser for best Web Speech API support.
 - The browser will prompt for microphone permission on first recording attempt.
 - To enable voice output, set `ELEVENLABS_API_KEY` in `.env`.
 - To enable automated build execution, install Mistral Vibe CLI (`vibe`) on the host running the API.
 
-## Queue + Worker (Agent C MVP)
-- Queue contracts: [docs/QUEUE.md](docs/QUEUE.md)
-- Local worker flow: [docs/WORKER_LOCAL.md](docs/WORKER_LOCAL.md)
-- Deployment steps: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+---
 
-## MVP Smoke Tests
-Run these before pushing to quickly verify the end-to-end loop.
+## Developer Resources
+- **New to the project?** Read [**path.md**](./path.md) for a guided tour of the code.
+- **Running Tests:** Use `npm run test:integration` to verify the full loop.
+- **Database:** Data is stored in `./data/the-architect.sqlite`.
+- **Infrastructure:** Use `npm run redis:up` to start Redis manually with Docker.
 
-1. Start the full stack:
-```bash
-npm run dev
-```
+---
 
-2. Run one smoke test pass (expects real provider success):
-```bash
-npm run test:smoke
-```
-
-3. Run multiple smoke passes in a loop:
-```bash
-LOOPS=3 npm run test:smoke:loop
-```
-
-Optional knobs:
-- `REQUIRE_PROVIDER_SUCCESS=1` fails if `/messages` does not return `200`.
-- `ARTIFACT_POLL_ATTEMPTS` and `ARTIFACT_POLL_INTERVAL_MS` control artifact wait timing.
+If this repo is used in a hackathon, prioritize: **Shipping, Reliability, and Demo Clarity** over premature complexity.

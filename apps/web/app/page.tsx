@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Main Page for the 'The Architect' Web Application.
+ *
+ * Problem: Users need a high-quality, real-time interface to talk to the AI,
+ * record their voice, and view generated technical documents (artifacts).
+ *
+ * Solution: A Next.js 15 React component that manages the state of the chat
+ * (the 'thread'), the active session, and the list of documents. It uses
+ * Tailwind CSS for styling and Lucide for icons.
+ */
+
 "use client";
 
 import {
@@ -34,6 +45,7 @@ import {
 import { useVoiceTranscript } from "@/hooks/useVoiceTranscript";
 import { useSessionEvents } from "@/hooks/useSessionEvents";
 
+// Default behavior settings
 const DEFAULT_MODE: Mode = "architect";
 
 type WorkspacePanel = "chat" | "architecture" | "build";
@@ -48,6 +60,9 @@ const sidebarItems: Array<{
     { name: "Build with Vibe", panel: "build", icon: Hammer }
   ];
 
+/**
+ * Define what a message looks like in our local UI state.
+ */
 type ThreadMessage =
   | {
     id: string;
@@ -62,6 +77,9 @@ type ThreadMessage =
     content: AssistantResponse;
   };
 
+/**
+ * Helper: Extract a readable string from various error types.
+ */
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     return error.message;
@@ -74,6 +92,9 @@ function getErrorMessage(error: unknown): string {
   return "Unexpected error";
 }
 
+/**
+ * Helper: Ensure JSON data is an object, not a string.
+ */
 function normalizeJsonPayload(payload: unknown): unknown {
   if (typeof payload !== "string") {
     return payload;
@@ -86,6 +107,9 @@ function normalizeJsonPayload(payload: unknown): unknown {
   }
 }
 
+/**
+ * Helper: Shorten long IDs for display (e.g., "abcd...1234").
+ */
 function formatSessionId(id: string | null): string {
   if (!id) {
     return "Not created";
@@ -98,10 +122,16 @@ function formatSessionId(id: string | null): string {
   return `${id.slice(0, 8)}...${id.slice(-8)}`;
 }
 
+/**
+ * Helper: Generate a temporary unique ID for messages before they are saved.
+ */
 function createMessageId(prefix: "user" | "assistant"): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * Main React Component
+ */
 function parseMermaidFromMarkdown(markdown: string): string | null {
   const match = markdown.match(/```mermaid\s*([\s\S]*?)\s*```/i);
   return match?.[1]?.trim() ?? null;
@@ -130,13 +160,22 @@ async function sleep(ms: number): Promise<void> {
 }
 
 export default function HomePage() {
+  // Voice Recording Hook (Logic is separated for cleanliness)
   const voice = useVoiceTranscript();
   const clearVoiceTranscript = voice.clearTranscript;
+
+  // Ref used to automatically scroll to the bottom of the chat
   const threadBottomRef = useRef<HTMLDivElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const [activePanel, setActivePanel] = useState<WorkspacePanel>("chat");
 
+  /**
+   * React State Management
+   * Problem: React needs to "remember" things like the current session ID
+   * and the messages in the chat.
+   * Solution: Use 'useState' hooks to track these values.
+   */
   const [mode, setMode] = useState<Mode>(DEFAULT_MODE);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
@@ -159,8 +198,10 @@ export default function HomePage() {
   const [isSending, setIsSending] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
 
+  // The actual list of messages shown in the UI
   const [thread, setThread] = useState<ThreadMessage[]>([]);
 
+  // Documents (Artifacts) state
   const [artifacts, setArtifacts] = useState<ArtifactListItem[]>([]);
   const [artifactsLoading, setArtifactsLoading] = useState(false);
   const [artifactsError, setArtifactsError] = useState<string | null>(null);
@@ -168,6 +209,9 @@ export default function HomePage() {
   const [artifactLoading, setArtifactLoading] = useState(false);
   const [artifactError, setArtifactError] = useState<string | null>(null);
 
+  /**
+   * Action: Start a new session.
+   */
   const [architectureArtifact, setArchitectureArtifact] = useState<ArtifactDetail | null>(null);
   const [architectureLoading, setArchitectureLoading] = useState(false);
   const [architectureError, setArchitectureError] = useState<string | null>(null);
@@ -231,6 +275,7 @@ export default function HomePage() {
     try {
       const response = await createSession({ mode });
       setSessionId(response.id);
+      // Reset UI state for the new session
       setArtifacts([]);
       setSelectedArtifact(null);
       setArchitectureArtifact(null);
@@ -249,6 +294,9 @@ export default function HomePage() {
     }
   }, [clearVoiceTranscript, mode]);
 
+  /**
+   * Action: Load the list of documents for the current session.
+   */
   const loadArtifacts = useCallback(async (id: string) => {
     setArtifactsLoading(true);
     setArtifactsError(null);
@@ -264,10 +312,16 @@ export default function HomePage() {
     }
   }, [loadLatestArchitecture]);
 
+  /**
+   * Effect: Automatically create a session when the app first loads.
+   */
   useEffect(() => {
     void createNewSession();
   }, [createNewSession]);
 
+  /**
+   * Effect: Fetch documents whenever the session ID changes.
+   */
   useEffect(() => {
     if (!sessionId) {
       return;
@@ -276,6 +330,9 @@ export default function HomePage() {
     void loadArtifacts(sessionId);
   }, [loadArtifacts, sessionId]);
 
+  /**
+   * Effect: Keep the chat scrolled to the bottom.
+   */
   useEffect(() => {
     if (activePanel !== "chat") {
       return;
@@ -291,6 +348,13 @@ export default function HomePage() {
     };
   }, []);
 
+  /**
+   * Action: Send a message (Text or Voice).
+   *
+   * Problem: We want the UI to feel fast.
+   * Solution: "Optimistic UI" - Add the user's message to the thread
+   * immediately before the API call finishes.
+   */
   const send = useCallback(
     async (source: Source, rawContent: string) => {
       if (!sessionId) {
@@ -305,6 +369,8 @@ export default function HomePage() {
 
       setIsSending(true);
       setRequestError(null);
+
+      // Add user message to UI immediately
       setThread((current) => [
         ...current,
         {
@@ -316,7 +382,10 @@ export default function HomePage() {
       ]);
 
       try {
+        // Send to API
         const response = await sendMessage(sessionId, { content, source });
+
+        // Add AI response to UI
         setThread((current) => [
           ...current,
           {
@@ -327,12 +396,14 @@ export default function HomePage() {
           }
         ]);
 
+        // Cleanup input fields
         if (source === "text") {
           setDraftMessage("");
         } else {
           clearVoiceTranscript();
         }
 
+        // Refresh documents (as one might have been generated)
         await loadArtifacts(sessionId);
       } catch (error) {
         setRequestError(getErrorMessage(error));
@@ -343,6 +414,9 @@ export default function HomePage() {
     [clearVoiceTranscript, loadArtifacts, sessionId]
   );
 
+  /**
+   * Action: View a specific document's details.
+   */
   const openArtifact = useCallback(async (artifactId: string) => {
     setArtifactLoading(true);
     setArtifactError(null);
@@ -360,6 +434,9 @@ export default function HomePage() {
     }
   }, []);
 
+  /**
+   * Memoized Value: Format the JSON for pretty display.
+   */
   const speakAssistant = useCallback(async (messageId: string, content: AssistantResponse) => {
     setSpeechError(null);
     setSpeakingId(messageId);
@@ -591,10 +668,11 @@ export default function HomePage() {
   return (
     <main className="chat-app">
       <section className="workspace-shell">
+        {/* Sidebar: Navigation and Branding */}
         <aside className="sidebar">
           <div className="sidebar-brand">
             <h2 className="brand-title">
-              <span className="brand-icon">⬡</span>
+              <span className="brand-icon">*</span>
               The Architect
             </h2>
             <p className="kicker">AI Co-founder Workspace</p>
@@ -626,6 +704,7 @@ export default function HomePage() {
           </div>
         </aside>
 
+        {/* Main Chat Area */}
         <section className="chat-shell">
           <header className="chat-header" style={{ paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'flex-end' }}>
             <div className="topbar-actions" style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
@@ -655,6 +734,7 @@ export default function HomePage() {
             </div>
           </header>
 
+          {/* Error Notifications */}
           {(sessionError || requestError || speechError || buildError) && (
             <section className="status status-error">
               {sessionError && <p>Session error: {sessionError}</p>}
@@ -664,6 +744,7 @@ export default function HomePage() {
             </section>
           )}
 
+          {/* Voice Compatibility Warnings */}
           {voice.isSupported === false && (
             <section className="status status-warning">
               Speech recognition is unavailable in this browser. You can still send text messages.
@@ -676,6 +757,9 @@ export default function HomePage() {
             </section>
           )}
 
+          {/* Conversation History */}
+          <section className="conversation panel">
+            <div className="message-stack">
           {activePanel === "chat" && (
             <>
               <section className="conversation" style={{ padding: 0, margin: 0, border: 'none', background: 'transparent', boxShadow: 'none' }}>
