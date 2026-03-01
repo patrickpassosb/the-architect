@@ -24,6 +24,7 @@ import {
 import {
   ApiError,
   createSession,
+  generateArchitectureFromChat,
   getArtifact,
   getArtifacts,
   runBuildWithVibe,
@@ -31,6 +32,7 @@ import {
   synthesizeVoice
 } from "@/lib/api";
 import { useVoiceTranscript } from "@/hooks/useVoiceTranscript";
+import { useSessionEvents } from "@/hooks/useSessionEvents";
 
 const DEFAULT_MODE: Mode = "architect";
 
@@ -123,6 +125,10 @@ function base64ToBlob(base64: string, contentType: string): Blob {
   return new Blob([bytes], { type: contentType });
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function HomePage() {
   const voice = useVoiceTranscript();
   const clearVoiceTranscript = voice.clearTranscript;
@@ -133,6 +139,19 @@ export default function HomePage() {
 
   const [mode, setMode] = useState<Mode>(DEFAULT_MODE);
   const [sessionId, setSessionId] = useState<string | null>(null);
+
+  useSessionEvents(sessionId, {
+    onArtifactReady: (kind) => {
+      console.log(`Real-time update: Artifact of kind "${kind}" is ready.`);
+      if (sessionId) {
+        void loadArtifacts(sessionId);
+      }
+    },
+    onJobFailed: (error) => {
+      console.error("Real-time update: Job failed:", error);
+      setRequestError(`Background job failed: ${error}`);
+    }
+  });
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
 
@@ -152,6 +171,8 @@ export default function HomePage() {
   const [architectureArtifact, setArchitectureArtifact] = useState<ArtifactDetail | null>(null);
   const [architectureLoading, setArchitectureLoading] = useState(false);
   const [architectureError, setArchitectureError] = useState<string | null>(null);
+  const [architectureGenerating, setArchitectureGenerating] = useState(false);
+  const [showArchitectureMarkdown, setShowArchitectureMarkdown] = useState(false);
 
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [speechError, setSpeechError] = useState<string | null>(null);
@@ -192,6 +213,7 @@ export default function HomePage() {
 
       const detail = await getArtifact(latestArchitectureItem.id);
       setArchitectureArtifact(detail);
+      setShowArchitectureMarkdown(false);
       if (!selectedArtifact || selectedArtifact.id === latestArchitectureItem.id) {
         setSelectedArtifact(detail);
       }
@@ -213,6 +235,7 @@ export default function HomePage() {
       setSelectedArtifact(null);
       setArchitectureArtifact(null);
       setArchitectureError(null);
+      setShowArchitectureMarkdown(false);
       setThread([]);
       setRequestError(null);
       setBuildResult(null);
@@ -431,6 +454,45 @@ export default function HomePage() {
     ];
   }, [architectureJson]);
 
+  const architectureSummary = useMemo(() => {
+    if (architectureJson && typeof architectureJson === "object" && "summary" in architectureJson) {
+      const summary = (architectureJson as { summary?: unknown }).summary;
+      if (typeof summary === "string" && summary.trim()) {
+        return summary.trim();
+      }
+    }
+
+    return architectureArtifact ? "Architecture generated from latest chat context." : "";
+  }, [architectureArtifact, architectureJson]);
+
+  const architectureDecision = useMemo(() => {
+    if (architectureJson && typeof architectureJson === "object" && "decision" in architectureJson) {
+      const decision = (architectureJson as { decision?: unknown }).decision;
+      if (typeof decision === "string" && decision.trim()) {
+        return decision.trim();
+      }
+    }
+
+    return "";
+  }, [architectureJson]);
+
+  const architectureNextActions = useMemo(() => {
+    if (architectureJson && typeof architectureJson === "object" && "next_actions" in architectureJson) {
+      const next = (architectureJson as { next_actions?: unknown }).next_actions;
+      if (Array.isArray(next)) {
+        return next.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+      }
+    }
+
+    return [] as string[];
+  }, [architectureJson]);
+
+  const architectureJsonPreview = useMemo(() => {
+    const serialized = JSON.stringify(architectureJson ?? {}, null, 2);
+    const maxLength = 2_200;
+    return serialized.length > maxLength ? `${serialized.slice(0, maxLength)}\n...` : serialized;
+  }, [architectureJson]);
+
   const prettyJson = useMemo(() => {
     if (!selectedArtifact?.content_json) {
       return null;
@@ -439,6 +501,54 @@ export default function HomePage() {
     const normalized = normalizeJsonPayload(selectedArtifact.content_json);
     return JSON.stringify(normalized, null, 2);
   }, [selectedArtifact]);
+
+  const generateArchitecture = useCallback(async () => {
+    if (!sessionId) {
+      setArchitectureError("No active session");
+      return;
+    }
+
+    setArchitectureGenerating(true);
+    setArchitectureError(null);
+    const previousArtifactId = architectureArtifact?.id ?? null;
+
+    try {
+      await generateArchitectureFromChat(sessionId, {
+        focus: latestAssistantMessage?.role === "assistant"
+          ? latestAssistantMessage.content.decision
+          : undefined
+      });
+
+      let refreshed = false;
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        const list = await getArtifacts(sessionId);
+        setArtifacts(list);
+        const latestArchitecture = list.find((item) => item.kind === "architecture");
+
+        if (latestArchitecture && latestArchitecture.id !== previousArtifactId) {
+          await loadLatestArchitecture(sessionId, list);
+          refreshed = true;
+          break;
+        }
+
+        await sleep(800);
+      }
+
+      if (!refreshed) {
+        await loadArtifacts(sessionId);
+      }
+    } catch (error) {
+      setArchitectureError(getErrorMessage(error));
+    } finally {
+      setArchitectureGenerating(false);
+    }
+  }, [
+    architectureArtifact?.id,
+    latestAssistantMessage,
+    loadArtifacts,
+    loadLatestArchitecture,
+    sessionId
+  ]);
 
   const runBuild = useCallback(async () => {
     if (!sessionId) {
@@ -744,13 +854,22 @@ export default function HomePage() {
             <section className="architecture-shell panel">
               <div className="row spaced">
                 <h2>Architecture View</h2>
-                <button
-                  className="button"
-                  onClick={() => sessionId && void loadArtifacts(sessionId)}
-                  disabled={!sessionId || architectureLoading || artifactsLoading}
-                >
-                  {architectureLoading ? "Refreshing..." : "Refresh Architecture"}
-                </button>
+                <div className="row architecture-actions">
+                  <button
+                    className="button button-accent"
+                    onClick={() => void generateArchitecture()}
+                    disabled={!sessionId || architectureGenerating || isSending}
+                  >
+                    {architectureGenerating ? "Generating..." : "Generate From Chat"}
+                  </button>
+                  <button
+                    className="button"
+                    onClick={() => sessionId && void loadArtifacts(sessionId)}
+                    disabled={!sessionId || architectureLoading || artifactsLoading || architectureGenerating}
+                  >
+                    {architectureLoading ? "Refreshing..." : "Refresh"}
+                  </button>
+                </div>
               </div>
 
               {architectureError && <p className="status-inline status-error">{architectureError}</p>}
@@ -786,9 +905,49 @@ export default function HomePage() {
                     </ul>
                   </article>
 
-                  <article className="architecture-card panel architecture-markdown">
-                    <h3>Architecture Markdown</h3>
-                    <ReactMarkdown>{architectureArtifact.content_md || "_No architecture markdown available._"}</ReactMarkdown>
+                  <article className="architecture-card panel architecture-brief">
+                    <h3>Architecture Brief</h3>
+                    <p className="architecture-summary-text">{architectureSummary || "No summary available."}</p>
+                    {architectureDecision && (
+                      <p className="architecture-decision-text">
+                        <strong>Decision:</strong> {architectureDecision}
+                      </p>
+                    )}
+                    {architectureNextActions.length > 0 && (
+                      <ol className="architecture-next-actions">
+                        {architectureNextActions.slice(0, 4).map((action, index) => (
+                          <li key={`${action}-${index}`}>{action}</li>
+                        ))}
+                      </ol>
+                    )}
+                    <button
+                      className="button button-ghost"
+                      onClick={() => setShowArchitectureMarkdown((current) => !current)}
+                    >
+                      {showArchitectureMarkdown ? "Hide Markdown" : "Show Markdown"}
+                    </button>
+                  </article>
+
+                  {showArchitectureMarkdown && (
+                    <article className="architecture-card panel architecture-markdown-scroll">
+                      <h3>Architecture Markdown</h3>
+                      <div className="architecture-markdown-body">
+                        <ReactMarkdown>{architectureArtifact.content_md || "_No architecture markdown available._"}</ReactMarkdown>
+                      </div>
+                    </article>
+                  )}
+
+                  {!showArchitectureMarkdown && (
+                    <article className="architecture-card panel architecture-markdown-hint">
+                      <p className="muted">
+                        Markdown artifact is generated and available. Expand it only when needed to keep this view compact.
+                      </p>
+                    </article>
+                  )}
+
+                  <article className="architecture-card panel architecture-json-snippet">
+                    <h3>Artifact Snapshot</h3>
+                    <pre>{architectureJsonPreview}</pre>
                   </article>
                 </div>
               )}

@@ -5,6 +5,8 @@ import path from "node:path";
 import dotenv from "dotenv";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import { FastifySSEPlugin } from "fastify-sse-v2";
+import Redis from "ioredis";
 import {
   createArtifactQueue,
   createSession,
@@ -26,6 +28,8 @@ const {
   artifactIdParamsSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
+  generateArchitectureRequestSchema,
+  generateArchitectureResponseSchema,
   healthResponseSchema,
   listArtifactsResponseSchema,
   runBuildRequestSchema,
@@ -277,6 +281,42 @@ function parseAssistantContent(raw: string): AssistantResponse | null {
   }
 }
 
+type StoredMessageRow = {
+  role: "user" | "assistant" | "system";
+  content: string;
+  transcript_source: "voice" | "text";
+  created_at: string;
+};
+
+function summarizeMessageForContext(row: StoredMessageRow): string {
+  if (row.role === "assistant") {
+    const parsed = parseAssistantContent(row.content);
+    if (parsed) {
+      const next = parsed.next_actions.slice(0, 3).join("; ");
+      return `assistant: ${parsed.summary} | decision=${parsed.decision} | next=${next}`;
+    }
+  }
+
+  const compact = row.content.replace(/\s+/g, " ").trim();
+  return `${row.role}: ${compact.slice(0, 260)}`;
+}
+
+async function buildChatContext(db: Awaited<ReturnType<typeof openDatabase>>, sessionId: string): Promise<string> {
+  const recent = await db.all<StoredMessageRow[]>(
+    `SELECT role, content, transcript_source, created_at
+     FROM messages
+     WHERE session_id = ?
+     ORDER BY created_at DESC
+     LIMIT 12`,
+    sessionId
+  );
+
+  const ordered = recent.reverse();
+  const lines = ordered.map((row) => summarizeMessageForContext(row));
+  const joined = lines.join("\n");
+  return joined.length > 6_000 ? joined.slice(joined.length - 6_000) : joined;
+}
+
 async function start(): Promise<void> {
   const app = Fastify({ logger: true });
   const db = await openDatabase(env.databaseUrl);
@@ -286,10 +326,15 @@ async function start(): Promise<void> {
     origin: true
   });
 
+  await app.register(FastifySSEPlugin);
+
   const artifactQueue = createArtifactQueue(env.redisUrl);
 
+  const redisSubscriber = new Redis(env.redisUrl);
+  redisSubscriber.setMaxListeners(0); // Prevent warnings for many connected clients
+
   app.addHook("onClose", async () => {
-    await Promise.allSettled([artifactQueue.close(), db.close()]);
+    await Promise.allSettled([artifactQueue.close(), db.close(), redisSubscriber.quit()]);
   });
 
   app.setErrorHandler((error, _request, reply) => {
@@ -342,6 +387,37 @@ async function start(): Promise<void> {
     });
 
     return reply.status(200).send(payload);
+  });
+
+  app.get("/api/sessions/:id/events", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    const channel = `session:${session.id}`;
+
+    const listener = (chn: string, message: string) => {
+      if (chn === channel) {
+        reply.sse({ data: message });
+      }
+    };
+
+    redisSubscriber.on("message", listener);
+    // Ensure we are subscribed to the channel. 
+    // It's safe to call subscribe multiple times for the same channel.
+    await redisSubscriber.subscribe(channel);
+
+    request.raw.on("close", () => {
+      redisSubscriber.removeListener("message", listener);
+      // We don't unsubscribe here because other clients might be listening to the same session.
+      // In a more complex setup, we'd refcount subscriptions.
+    });
+
+    // Send initial "connected" event
+    reply.sse({ event: "connected", data: JSON.stringify({ connected: true }) });
   });
 
   app.post("/api/voice/synthesize", async (request, reply) => {
@@ -471,6 +547,7 @@ async function start(): Promise<void> {
     });
 
     const artifactKind = mapModeToArtifactKind(session.mode);
+    const chatContext = await buildChatContext(db, session.id);
 
     let queuedJobs: Array<{ id: string; kind: "artifact_generation" }> = [];
 
@@ -487,7 +564,8 @@ async function start(): Promise<void> {
             assistant,
             artifact_kinds: [artifactKind],
             metadata: {
-              source: body.source
+              source: body.source,
+              chat_context: chatContext
             }
           }
         }),
@@ -521,6 +599,108 @@ async function start(): Promise<void> {
     });
 
     return reply.status(200).send(payload);
+  });
+
+  app.post("/api/sessions/:id/architecture", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const body = generateArchitectureRequestSchema.parse(request.body ?? {});
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    const latestUser = await db.get<{ content: string }>(
+      `SELECT content
+       FROM messages
+       WHERE session_id = ? AND role = 'user'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      session.id
+    );
+
+    if (!latestUser?.content) {
+      return reply.status(400).send({
+        error: "No user context found for this session. Send a message first."
+      });
+    }
+
+    const latestAssistantRow = await db.get<{ content: string }>(
+      `SELECT content
+       FROM messages
+       WHERE session_id = ? AND role = 'assistant'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      session.id
+    );
+
+    let assistant = latestAssistantRow ? parseAssistantContent(latestAssistantRow.content) : null;
+    let source: "latest_assistant" | "generated_assistant" = "latest_assistant";
+
+    if (!assistant) {
+      if (!env.mistralApiKey) {
+        return reply.status(500).send({
+          error: "MISTRAL_API_KEY is not configured and no prior assistant context exists"
+        });
+      }
+
+      const generated = await generateMistralAssistantResponse({
+        apiKey: env.mistralApiKey,
+        model: env.mistralModel,
+        mode: "architect",
+        userInput: [
+          latestUser.content,
+          body.focus ? `Architecture focus: ${body.focus}` : ""
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        apiUrl: env.mistralApiUrl
+      });
+
+      assistant = generated;
+      source = "generated_assistant";
+    }
+
+    const chatContext = await buildChatContext(db, session.id);
+
+    const job = await withTimeout(
+      enqueueArtifactGenerationJob(artifactQueue, {
+        session: {
+          id: session.id,
+          mode: "architect",
+          ...(session.title ? { title: session.title } : {})
+        },
+        context: {
+          user_input: latestUser.content,
+          assistant,
+          artifact_kinds: ["architecture"],
+          metadata: {
+            source: "system",
+            trigger: "manual_architecture_generation",
+            focus: body.focus ?? "",
+            chat_context: chatContext
+          }
+        }
+      }),
+      2_000,
+      "Redis enqueue timed out"
+    );
+
+    const queueJobId = String(job.id ?? randomUUID());
+
+    await upsertJobStatus(db, {
+      id: queueJobId,
+      session_id: session.id,
+      kind: "artifact_generation",
+      status: "pending"
+    });
+
+    const payload = generateArchitectureResponseSchema.parse({
+      queued_job: { id: queueJobId, kind: "artifact_generation" },
+      source
+    });
+
+    return reply.status(202).send(payload);
   });
 
   app.post("/api/sessions/:id/build", async (request, reply) => {

@@ -2,6 +2,8 @@ import {
   artifactDetailSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
+  generateArchitectureRequestSchema,
+  generateArchitectureResponseSchema,
   listArtifactsResponseSchema,
   runBuildRequestSchema,
   runBuildResponseSchema,
@@ -13,6 +15,8 @@ import {
   type ArtifactListItem,
   type CreateSessionRequest,
   type CreateSessionResponse,
+  type GenerateArchitectureRequest,
+  type GenerateArchitectureResponse,
   type RunBuildRequest,
   type RunBuildResponse,
   type SendMessageRequest,
@@ -153,5 +157,20 @@ export async function runBuildWithVibe(
       body: JSON.stringify(parsed)
     },
     runBuildResponseSchema
+  );
+}
+
+export async function generateArchitectureFromChat(
+  sessionId: string,
+  payload: GenerateArchitectureRequest = {}
+): Promise<GenerateArchitectureResponse> {
+  const parsed = generateArchitectureRequestSchema.parse(payload);
+  return requestJson(
+    `/api/sessions/${sessionId}/architecture`,
+    {
+      method: "POST",
+      body: JSON.stringify(parsed)
+    },
+    generateArchitectureResponseSchema
   );
 }

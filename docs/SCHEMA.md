@@ -137,3 +137,21 @@ Response:
   "notes": ["Execution completed."]
 }
 ```
+
+### POST `/api/sessions/:id/architecture`
+Generate an architecture artifact grounded in latest session chat context.
+
+Request:
+```json
+{
+  "focus": "optional architecture focus area"
+}
+```
+
+Response:
+```json
+{
+  "queued_job": { "id": "job_123", "kind": "artifact_generation" },
+  "source": "latest_assistant"
+}
+```

@@ -93,6 +93,15 @@ export const runBuildResponseSchema = z.object({
   notes: z.array(z.string())
 });
 
+export const generateArchitectureRequestSchema = z.object({
+  focus: z.string().trim().min(1).max(600).optional()
+});
+
+export const generateArchitectureResponseSchema = z.object({
+  queued_job: queuedJobSchema,
+  source: z.enum(["latest_assistant", "generated_assistant"])
+});
+
 export const queueNameSchema = z.enum(["artifact_generation"]);
 export const artifactJobNameSchema = z.enum(["artifact_generation"]);
 
@@ -132,6 +141,8 @@ export type SynthesizeVoiceRequest = z.infer<typeof synthesizeVoiceRequestSchema
 export type SynthesizeVoiceResponse = z.infer<typeof synthesizeVoiceResponseSchema>;
 export type RunBuildRequest = z.infer<typeof runBuildRequestSchema>;
 export type RunBuildResponse = z.infer<typeof runBuildResponseSchema>;
+export type GenerateArchitectureRequest = z.infer<typeof generateArchitectureRequestSchema>;
+export type GenerateArchitectureResponse = z.infer<typeof generateArchitectureResponseSchema>;
 export type QueueName = z.infer<typeof queueNameSchema>;
 export type ArtifactJobName = z.infer<typeof artifactJobNameSchema>;
 export type ArtifactGenerationContext = z.infer<
