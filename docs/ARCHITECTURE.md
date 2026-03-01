@@ -58,9 +58,12 @@ graph TD
 - **Dynamic Thread:** Maintains a real-time list of messages and AI responses.
 
 ### 2) API Service (`apps/api`)
-- **Fastify Framework:** Chosen for its high performance and built-in support for JSON schema validation.
-- **Request Validation:** Every request is validated against Zod schemas from `packages/shared-types`.
-- **AI Orchestration:** Coordinates calls to Mistral AI and manages the immediate response to the user.
+- Session management
+- Message intake endpoint
+- Mistral orchestration + schema validation
+- ElevenLabs synthesis endpoint for assistant voice output
+- Build orchestration endpoint that executes Mistral Vibe CLI
+- Queue producer for artifact generation jobs
 
 ### 3) Worker Service (`apps/worker`)
 - **BullMQ Integration:** Efficiently processes background tasks without blocking the main event loop.

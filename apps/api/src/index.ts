@@ -11,11 +11,14 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import { FastifySSEPlugin } from "fastify-sse-v2";
+import Redis from "ioredis";
 import {
   createArtifactQueue,
   createSession,
@@ -38,10 +41,16 @@ const {
   artifactIdParamsSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
+  generateArchitectureRequestSchema,
+  generateArchitectureResponseSchema,
   healthResponseSchema,
   listArtifactsResponseSchema,
+  runBuildRequestSchema,
+  runBuildResponseSchema,
   sendMessageRequestSchema,
   sendMessageResponseSchema,
+  synthesizeVoiceRequestSchema,
+  synthesizeVoiceResponseSchema,
   sessionIdParamsSchema
 } = sharedTypes;
 
@@ -118,7 +127,10 @@ const env = {
   mistralApiKey: process.env.MISTRAL_API_KEY ?? "",
   mistralModel: process.env.MISTRAL_MODEL ?? "mistral-large-latest",
   mistralApiUrl:
-    process.env.MISTRAL_API_URL ?? "https://api.mistral.ai/v1/chat/completions"
+    process.env.MISTRAL_API_URL ?? "https://api.mistral.ai/v1/chat/completions",
+  elevenLabsApiKey: process.env.ELEVENLABS_API_KEY ?? "",
+  elevenLabsVoiceId: process.env.ELEVENLABS_VOICE_ID ?? "JBFqnCBsd6RMkjVDRZzb",
+  elevenLabsModelId: process.env.ELEVENLABS_MODEL_ID ?? "eleven_multilingual_v2"
 };
 
 // basic safety check
@@ -231,6 +243,135 @@ function isRedisConnectivityError(error: Error): boolean {
 /**
  * Main Server Startup Function
  */
+type CommandResult = {
+  exitCode: number | null;
+  timedOut: boolean;
+  output: string;
+};
+
+async function runCommand(
+  binary: string,
+  args: string[],
+  options: { cwd: string; timeoutMs: number }
+): Promise<CommandResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(binary, args, {
+      cwd: options.cwd,
+      env: process.env
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+
+    const timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      setTimeout(() => {
+        if (!child.killed) {
+          child.kill("SIGKILL");
+        }
+      }, 2_000).unref();
+    }, options.timeoutMs);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+
+    child.on("error", (error) => {
+      clearTimeout(timeoutHandle);
+      reject(error);
+    });
+
+    child.on("close", (exitCode) => {
+      clearTimeout(timeoutHandle);
+      const joined = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n\n");
+      const maxLength = 30_000;
+      const output = joined.length > maxLength ? joined.slice(-maxLength) : joined;
+      resolve({
+        exitCode,
+        timedOut,
+        output
+      });
+    });
+  });
+}
+
+function buildVibePrompt(input: {
+  sessionId: string;
+  mode: Mode;
+  goal?: string;
+  context?: string;
+}): string {
+  const goal =
+    input.goal?.trim() ||
+    "Create or improve this project implementation based on the current architecture decisions.";
+
+  return [
+    "You are helping implement a hackathon MVP in this repository.",
+    `Session ID: ${input.sessionId}`,
+    `Mode: ${input.mode}`,
+    `Goal: ${goal}`,
+    input.context?.trim() ? `Context:\n${input.context.trim()}` : "",
+    "Constraints:",
+    "- Work only inside this repository.",
+    "- Keep changes minimal and focused on demo reliability.",
+    "- Prefer code that is easy to demo in under 2 minutes.",
+    "- End with a short summary of files changed and commands to run."
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function parseAssistantContent(raw: string): AssistantResponse | null {
+  try {
+    const value = JSON.parse(raw);
+    return sharedTypes.assistantResponseSchema.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+type StoredMessageRow = {
+  role: "user" | "assistant" | "system";
+  content: string;
+  transcript_source: "voice" | "text";
+  created_at: string;
+};
+
+function summarizeMessageForContext(row: StoredMessageRow): string {
+  if (row.role === "assistant") {
+    const parsed = parseAssistantContent(row.content);
+    if (parsed) {
+      const next = parsed.next_actions.slice(0, 3).join("; ");
+      return `assistant: ${parsed.summary} | decision=${parsed.decision} | next=${next}`;
+    }
+  }
+
+  const compact = row.content.replace(/\s+/g, " ").trim();
+  return `${row.role}: ${compact.slice(0, 260)}`;
+}
+
+async function buildChatContext(db: Awaited<ReturnType<typeof openDatabase>>, sessionId: string): Promise<string> {
+  const recent = await db.all<StoredMessageRow[]>(
+    `SELECT role, content, transcript_source, created_at
+     FROM messages
+     WHERE session_id = ?
+     ORDER BY created_at DESC
+     LIMIT 12`,
+    sessionId
+  );
+
+  const ordered = recent.reverse();
+  const lines = ordered.map((row) => summarizeMessageForContext(row));
+  const joined = lines.join("\n");
+  return joined.length > 6_000 ? joined.slice(joined.length - 6_000) : joined;
+}
+
 async function start(): Promise<void> {
   // Create Fastify instance with logging enabled
   const app = Fastify({ logger: true });
@@ -248,8 +389,15 @@ async function start(): Promise<void> {
   const artifactQueue = createArtifactQueue(env.redisUrl);
 
   // 4. Graceful Shutdown: Close connections when the server stops
+  await app.register(FastifySSEPlugin);
+
+  const artifactQueue = createArtifactQueue(env.redisUrl);
+
+  const redisSubscriber = new Redis(env.redisUrl);
+  redisSubscriber.setMaxListeners(0); // Prevent warnings for many connected clients
+
   app.addHook("onClose", async () => {
-    await Promise.allSettled([artifactQueue.close(), db.close()]);
+    await Promise.allSettled([artifactQueue.close(), db.close(), redisSubscriber.quit()]);
   });
 
   /**
@@ -321,6 +469,83 @@ async function start(): Promise<void> {
    * Route: Create Session
    * Starts a new conversation with 'The Architect'.
    */
+  app.get("/api/sessions/:id/events", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    const channel = `session:${session.id}`;
+
+    const listener = (chn: string, message: string) => {
+      if (chn === channel) {
+        reply.sse({ data: message });
+      }
+    };
+
+    redisSubscriber.on("message", listener);
+    // Ensure we are subscribed to the channel. 
+    // It's safe to call subscribe multiple times for the same channel.
+    await redisSubscriber.subscribe(channel);
+
+    request.raw.on("close", () => {
+      redisSubscriber.removeListener("message", listener);
+      // We don't unsubscribe here because other clients might be listening to the same session.
+      // In a more complex setup, we'd refcount subscriptions.
+    });
+
+    // Send initial "connected" event
+    reply.sse({ event: "connected", data: JSON.stringify({ connected: true }) });
+  });
+
+  app.post("/api/voice/synthesize", async (request, reply) => {
+    const body = synthesizeVoiceRequestSchema.parse(request.body);
+
+    if (!env.elevenLabsApiKey) {
+      return reply.status(500).send({
+        error: "ELEVENLABS_API_KEY is not configured"
+      });
+    }
+
+    const response = await fetch(
+      `https://api.elevenlabs.io/v1/text-to-speech/${env.elevenLabsVoiceId}`,
+      {
+        method: "POST",
+        headers: {
+          "xi-api-key": env.elevenLabsApiKey,
+          "Content-Type": "application/json",
+          Accept: "audio/mpeg"
+        },
+        body: JSON.stringify({
+          text: body.text,
+          model_id: env.elevenLabsModelId,
+          voice_settings: {
+            stability: 0.35,
+            similarity_boost: 0.7
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      return reply.status(502).send({
+        error: `ElevenLabs API ${response.status}: ${errorBody.slice(0, 300)}`
+      });
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const payload = synthesizeVoiceResponseSchema.parse({
+      provider: "elevenlabs",
+      content_type: response.headers.get("content-type") ?? "audio/mpeg",
+      audio_base64: buffer.toString("base64")
+    });
+
+    return reply.status(200).send(payload);
+  });
+
   app.post("/api/sessions", async (request, reply) => {
     // Validate the request body
     const body = createSessionRequestSchema.parse(request.body);
@@ -420,6 +645,8 @@ async function start(): Promise<void> {
 
     // 4. Enqueue Artifact Generation
     const artifactKind = mapModeToArtifactKind(session.mode);
+    const chatContext = await buildChatContext(db, session.id);
+
     let queuedJobs: Array<{ id: string; kind: "artifact_generation" }> = [];
 
     try {
@@ -435,7 +662,8 @@ async function start(): Promise<void> {
             assistant,
             artifact_kinds: [artifactKind],
             metadata: {
-              source: body.source
+              source: body.source,
+              chat_context: chatContext
             }
           }
         }),
@@ -476,6 +704,201 @@ async function start(): Promise<void> {
    * Route: List Artifacts
    * Gets all documents generated for a specific session.
    */
+  app.post("/api/sessions/:id/architecture", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const body = generateArchitectureRequestSchema.parse(request.body ?? {});
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    const latestUser = await db.get<{ content: string }>(
+      `SELECT content
+       FROM messages
+       WHERE session_id = ? AND role = 'user'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      session.id
+    );
+
+    if (!latestUser?.content) {
+      return reply.status(400).send({
+        error: "No user context found for this session. Send a message first."
+      });
+    }
+
+    const latestAssistantRow = await db.get<{ content: string }>(
+      `SELECT content
+       FROM messages
+       WHERE session_id = ? AND role = 'assistant'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      session.id
+    );
+
+    let assistant = latestAssistantRow ? parseAssistantContent(latestAssistantRow.content) : null;
+    let source: "latest_assistant" | "generated_assistant" = "latest_assistant";
+
+    if (!assistant) {
+      if (!env.mistralApiKey) {
+        return reply.status(500).send({
+          error: "MISTRAL_API_KEY is not configured and no prior assistant context exists"
+        });
+      }
+
+      const generated = await generateMistralAssistantResponse({
+        apiKey: env.mistralApiKey,
+        model: env.mistralModel,
+        mode: "architect",
+        userInput: [
+          latestUser.content,
+          body.focus ? `Architecture focus: ${body.focus}` : ""
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        apiUrl: env.mistralApiUrl
+      });
+
+      assistant = generated;
+      source = "generated_assistant";
+    }
+
+    const chatContext = await buildChatContext(db, session.id);
+
+    const job = await withTimeout(
+      enqueueArtifactGenerationJob(artifactQueue, {
+        session: {
+          id: session.id,
+          mode: "architect",
+          ...(session.title ? { title: session.title } : {})
+        },
+        context: {
+          user_input: latestUser.content,
+          assistant,
+          artifact_kinds: ["architecture"],
+          metadata: {
+            source: "system",
+            trigger: "manual_architecture_generation",
+            focus: body.focus ?? "",
+            chat_context: chatContext
+          }
+        }
+      }),
+      2_000,
+      "Redis enqueue timed out"
+    );
+
+    const queueJobId = String(job.id ?? randomUUID());
+
+    await upsertJobStatus(db, {
+      id: queueJobId,
+      session_id: session.id,
+      kind: "artifact_generation",
+      status: "pending"
+    });
+
+    const payload = generateArchitectureResponseSchema.parse({
+      queued_job: { id: queueJobId, kind: "artifact_generation" },
+      source
+    });
+
+    return reply.status(202).send(payload);
+  });
+
+  app.post("/api/sessions/:id/build", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const body = runBuildRequestSchema.parse(request.body ?? {});
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    const latestAssistant = await db.get<{ content: string }>(
+      `SELECT content
+       FROM messages
+       WHERE session_id = ? AND role = 'assistant'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      session.id
+    );
+
+    const latestArchitecture = await db.get<{ content_md: string }>(
+      `SELECT content_md
+       FROM artifacts
+       WHERE session_id = ? AND kind = 'architecture'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      session.id
+    );
+
+    const parsedAssistant = latestAssistant ? parseAssistantContent(latestAssistant.content) : null;
+    const contextParts = [
+      body.context?.trim() ?? "",
+      parsedAssistant
+        ? `Latest assistant response:\nSummary: ${parsedAssistant.summary}\nDecision: ${parsedAssistant.decision}\nNext actions: ${parsedAssistant.next_actions.join("; ")}`
+        : "",
+      latestArchitecture?.content_md
+        ? `Latest architecture artifact:\n${latestArchitecture.content_md.slice(0, 6_000)}`
+        : ""
+    ].filter(Boolean);
+
+    const prompt = buildVibePrompt({
+      sessionId: session.id,
+      mode: session.mode,
+      goal: body.goal,
+      context: contextParts.join("\n\n")
+    });
+
+    const repoRoot = findRepoRoot(process.cwd());
+    const commandArgs = ["--workdir", repoRoot, "-p", prompt, "--max-turns", body.dry_run ? "4" : "10", "--output", "text"];
+    if (body.dry_run) {
+      commandArgs.push("--agent", "plan");
+    }
+
+    const startedAt = Date.now();
+
+    let commandResult: CommandResult;
+    try {
+      commandResult = await runCommand("vibe", commandArgs, {
+        cwd: repoRoot,
+        timeoutMs: body.dry_run ? 45_000 : 120_000
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown Vibe execution error";
+      const looksLikeMissingBinary =
+        message.toLowerCase().includes("enoent") || message.toLowerCase().includes("not found");
+      return reply.status(looksLikeMissingBinary ? 501 : 500).send({
+        error: looksLikeMissingBinary
+          ? "Vibe CLI is not available on this host. Install `vibe` to enable build automation."
+          : message
+      });
+    }
+
+    const duration = Date.now() - startedAt;
+    const status = commandResult.timedOut
+      ? "timed_out"
+      : commandResult.exitCode === 0
+        ? "completed"
+        : "failed";
+
+    const payload = runBuildResponseSchema.parse({
+      build_id: randomUUID(),
+      status,
+      command: `vibe --workdir ${repoRoot} -p <prompt> --max-turns ${body.dry_run ? "4" : "10"} --output text${body.dry_run ? " --agent plan" : ""}`,
+      exit_code: commandResult.exitCode,
+      output: commandResult.output,
+      duration_ms: duration,
+      notes: [
+        commandResult.timedOut ? "Execution timed out before completion." : "Execution completed.",
+        "Output may be truncated to keep response size bounded."
+      ]
+    });
+
+    return reply.status(200).send(payload);
+  });
+
   app.get("/api/sessions/:id/artifacts", async (request, reply) => {
     const params = sessionIdParamsSchema.parse(request.params);
     const session = await getSessionById(db, params.id);

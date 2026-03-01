@@ -16,6 +16,12 @@ API:
 - `PORT` (Cloud Run injects this; default app fallback is `8080`)
 - `HOST` (`0.0.0.0`)
 - `SERVICE_NAME=api`
+- `MISTRAL_API_KEY`
+- `MISTRAL_MODEL` (default `mistral-large-latest`)
+- `MISTRAL_API_URL` (default `https://api.mistral.ai/v1/chat/completions`)
+- `ELEVENLABS_API_KEY` (required for voice output)
+- `ELEVENLABS_VOICE_ID` (optional, default `JBFqnCBsd6RMkjVDRZzb`)
+- `ELEVENLABS_MODEL_ID` (optional, default `eleven_multilingual_v2`)
 
 Worker:
 - `WORKER_PORT` (set to `8080` for Cloud Run; worker exposes `/health`)

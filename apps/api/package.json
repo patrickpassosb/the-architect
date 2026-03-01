@@ -18,6 +18,7 @@
     "bullmq": "^5.46.1",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1",
+    "fastify-sse-v2": "^4.2.2",
     "ioredis": "^5.4.2"
   },
   "devDependencies": {

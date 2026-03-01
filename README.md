@@ -124,7 +124,7 @@ docs/
    cp .env.example .env
    # Edit .env and add your MISTRAL_API_KEY
    ```
-
+ 
 3. **Start everything (Redis + API + Worker + Web):**
    ```bash
    npm run dev
@@ -133,6 +133,14 @@ docs/
 - **Web:** `http://localhost:3000`
 - **API Health:** `http://localhost:4000/api/health`
 - **Worker Health:** `http://localhost:4100/health`
+
+---
+
+## Voice notes:
+- Use a Chromium-based browser for best Web Speech API support.
+- The browser will prompt for microphone permission on first recording attempt.
+- To enable voice output, set `ELEVENLABS_API_KEY` in `.env`.
+- To enable automated build execution, install Mistral Vibe CLI (`vibe`) on the host running the API.
 
 ---
 

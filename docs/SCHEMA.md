@@ -29,6 +29,7 @@
 | kind | text | architecture \| tasks \| pitch |
 | title | text | |
 | content_md | text | markdown output |
+| content_json | text | serialized JSON payload |
 | created_at | datetime | |
 
 ### jobs (optional)
@@ -92,5 +93,65 @@ Get artifact content.
 
 Response:
 ```json
-{ "id": "art_1", "kind": "architecture", "content_md": "# ..." }
+{ "id": "art_1", "kind": "architecture", "content_md": "# ...", "content_json": {} }
+```
+
+### POST `/api/voice/synthesize`
+Generate voice output for assistant text (ElevenLabs).
+
+Request:
+```json
+{ "text": "Short assistant response to speak" }
+```
+
+Response:
+```json
+{
+  "provider": "elevenlabs",
+  "content_type": "audio/mpeg",
+  "audio_base64": "..."
+}
+```
+
+### POST `/api/sessions/:id/build`
+Run a Vibe-driven build command using current session context.
+
+Request:
+```json
+{
+  "goal": "Create initial project scaffold based on the architecture",
+  "context": "optional extra context",
+  "dry_run": false
+}
+```
+
+Response:
+```json
+{
+  "build_id": "uuid",
+  "status": "completed",
+  "command": "vibe --workdir ...",
+  "exit_code": 0,
+  "output": "...",
+  "duration_ms": 18234,
+  "notes": ["Execution completed."]
+}
+```
+
+### POST `/api/sessions/:id/architecture`
+Generate an architecture artifact grounded in latest session chat context.
+
+Request:
+```json
+{
+  "focus": "optional architecture focus area"
+}
+```
+
+Response:
+```json
+{
+  "queued_job": { "id": "job_123", "kind": "artifact_generation" },
+  "source": "latest_assistant"
+}
 ```

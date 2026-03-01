@@ -92,6 +92,9 @@ REDIS_URL=redis://127.0.0.1:6379
 MISTRAL_API_KEY=replace_with_real_key
 MISTRAL_MODEL=mistral-large-latest
 MISTRAL_API_URL=https://api.mistral.ai/v1/chat/completions
+ELEVENLABS_API_KEY=replace_with_real_key
+ELEVENLABS_VOICE_ID=JBFqnCBsd6RMkjVDRZzb
+ELEVENLABS_MODEL_ID=eleven_multilingual_v2
 ```
 
 Rules:
@@ -481,4 +484,3 @@ EOF`
 
 If blocked:
 - run `npm run workflow:docker-loop` for a containerized validation path.
-

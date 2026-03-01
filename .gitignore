@@ -1,29 +1,50 @@
-# Common dependency and build directories
-node_modules
-dist
-.next
-out
-build
-*.log
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+out/
+coverage/
+.next/
+apps/*/.next/
+apps/*/dist/
+packages/*/dist/
 *.tsbuildinfo
 
-# Environment variables (DO NOT COMMIT SECRETS)
+# Runtime and temporary files
+.tmp/
+tmp/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files (keep templates)
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
+!apps/web/.env.example
 
-# Operating system files
-.DS_Store
-Thumbs.db
-
-# Database and data storage
+# Local database and persisted data
 data/
+apps/*/data/
 *.sqlite
 *.sqlite-journal
 *.sqlite-shm
 *.sqlite-wal
 
-# Configuration and tool metadata
+# Caches and tool state
 .eslintcache
 .stylelintcache
-.npm
+.npm/
+.cache/
+.turbo/
+.vercel/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

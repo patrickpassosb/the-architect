@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 import { Worker } from "bullmq";
+import Redis from "ioredis";
 import {
   QUEUE_NAMES,
   createRedisConnection,
@@ -99,13 +100,16 @@ async function bootstrap() {
   const db = await openDatabase(config.databaseUrl);
   await runMigrations(db);
 
-  // 2. Connect to Redis
-  const redisConnection = createRedisConnection(config.redisUrl);
 
   /**
    * Problem: We need to process jobs one by one without losing any work.
    * Solution: Create a BullMQ 'Worker'. It automatically pulls jobs from Redis.
    */
+  
+  const redisPublisher = new Redis(config.redisUrl);
+  // 2. Connect to Redis
+  const redisConnection = createRedisConnection(config.redisUrl);
+  
   const worker = new Worker<ArtifactGenerationJobPayload>(
     QUEUE_NAMES.artifactGeneration,
     async (job) => {
@@ -170,6 +174,20 @@ async function bootstrap() {
       sessionId: payload.session.id,
       result
     });
+
+    try {
+      const message = JSON.stringify({
+        type: "artifact_ready",
+        kind: payload.context.artifact_kinds[0],
+        artifact_ids: result.created_artifact_ids
+      });
+      await redisPublisher.publish(`session:${payload.session.id}`, message);
+    } catch (error) {
+      log("error", "Failed to publish artifact_ready event", {
+        sessionId: payload.session.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   });
 
   /**
@@ -193,6 +211,22 @@ async function bootstrap() {
       attemptsMade: job?.attemptsMade,
       error: err.message
     });
+
+    if (sessionId !== "unknown") {
+      try {
+        const message = JSON.stringify({
+          type: "job_failed",
+          job_id: job?.id,
+          error: err.message
+        });
+        await redisPublisher.publish(`session:${sessionId}`, message);
+      } catch (error) {
+        log("error", "Failed to publish job_failed event", {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
   });
 
   /**
@@ -219,6 +253,7 @@ async function bootstrap() {
 
     await worker.close();
     await db.close();
+    await redisPublisher.quit();
 
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
