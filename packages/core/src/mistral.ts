@@ -459,3 +459,107 @@ export async function generateDesignSummary(input: {
     controller.abort();
   }
 }
+
+/**
+ * Decompose a build goal into 3-5 independent sub-tasks using Mistral.
+ * Used by Turbo mode to parallelize code generation.
+ */
+export async function decomposeGoalIntoSubtasks(input: {
+  apiKey: string;
+  model: string;
+  goal: string;
+  blueprintContext?: string;
+  architectureContext?: string;
+  apiUrl?: string;
+  timeoutMs?: number;
+}): Promise<string[]> {
+  const controller = new AbortController();
+  const timeoutMs = input.timeoutMs ?? 20_000;
+
+  const systemPrompt = [
+    "You are The Architect, a technical task decomposition expert.",
+    "Given a build goal and optional architecture context, decompose it into 3-5 independent sub-tasks.",
+    "Each sub-task should be independently executable by a separate coding agent.",
+    "",
+    "Return STRICT JSON only, no markdown. The JSON must be an array of strings:",
+    '["task 1 description", "task 2 description", ...]',
+    "",
+    "Rules:",
+    "- Each task must be self-contained and independently implementable.",
+    "- Tasks should NOT depend on each other's output.",
+    "- Tasks should be specific and actionable (e.g., 'Create the user authentication API route with JWT validation').",
+    "- Keep each task description under 200 characters.",
+    "- Return exactly 3 to 5 tasks."
+  ].join("\n");
+
+  const userContent = [
+    `Build Goal: ${input.goal}`,
+    input.blueprintContext ? `\nBlueprint Context:\n${input.blueprintContext.slice(0, 3_000)}` : "",
+    input.architectureContext ? `\nArchitecture Context:\n${input.architectureContext.slice(0, 3_000)}` : ""
+  ].filter(Boolean).join("\n");
+
+  try {
+    const response = await Promise.race([
+      fetch(input.apiUrl ?? DEFAULT_MISTRAL_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: input.model,
+          temperature: 0.3,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userContent }
+          ]
+        }),
+        signal: controller.signal
+      }),
+      new Promise<Response>((_resolve, reject) => {
+        setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Task decomposition timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      })
+    ]);
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Mistral API ${response.status}: ${errorBody.slice(0, 500)}`);
+    }
+
+    const payload = (await response.json()) as MistralChoiceResponse;
+    const rawContent = payload.choices?.[0]?.message?.content;
+    const normalized = normalizeContent(rawContent);
+    const parsed = parseJsonObject(normalized);
+
+    // Handle both { tasks: [...] } and direct [...] formats
+    let tasks: unknown[];
+    if (Array.isArray(parsed)) {
+      tasks = parsed;
+    } else if (
+      parsed &&
+      typeof parsed === "object" &&
+      "tasks" in (parsed as Record<string, unknown>) &&
+      Array.isArray((parsed as Record<string, unknown>).tasks)
+    ) {
+      tasks = (parsed as { tasks: unknown[] }).tasks;
+    } else {
+      throw new Error("Mistral did not return a valid tasks array");
+    }
+
+    const stringTasks = tasks
+      .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+      .slice(0, 5);
+
+    if (stringTasks.length < 2) {
+      throw new Error("Mistral returned fewer than 2 decomposed tasks");
+    }
+
+    return stringTasks;
+  } finally {
+    controller.abort();
+  }
+}

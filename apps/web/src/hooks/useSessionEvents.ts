@@ -5,8 +5,11 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4
 export function useSessionEvents(sessionId: string | null, callbacks: {
   onArtifactReady?: (kind: string, ids: string[]) => void;
   onJobFailed?: (error: string) => void;
+  onBuildLog?: (agent: string, data: string) => void;
+  onBuildStart?: (turbo: boolean) => void;
+  onBuildDone?: (agent: string, exitCode: number | null, timedOut: boolean) => void;
 }) {
-  const { onArtifactReady, onJobFailed } = callbacks;
+  const { onArtifactReady, onJobFailed, onBuildLog, onBuildStart, onBuildDone } = callbacks;
   const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -27,6 +30,12 @@ export function useSessionEvents(sessionId: string | null, callbacks: {
           onArtifactReady?.(payload.kind, payload.artifact_ids);
         } else if (payload.type === "job_failed") {
           onJobFailed?.(payload.error);
+        } else if (payload.type === "build_log") {
+          onBuildLog?.(payload.agent ?? "Vibe", payload.data ?? "");
+        } else if (payload.type === "build_start") {
+          onBuildStart?.(payload.turbo ?? false);
+        } else if (payload.type === "build_done") {
+          onBuildDone?.(payload.agent ?? "Vibe", payload.exit_code ?? null, payload.timed_out ?? false);
         }
       } catch (error) {
         console.error("Failed to parse SSE message:", error);
@@ -45,5 +54,5 @@ export function useSessionEvents(sessionId: string | null, callbacks: {
       eventSource.close();
       eventSourceRef.current = null;
     };
-  }, [sessionId, onArtifactReady, onJobFailed]);
+  }, [sessionId, onArtifactReady, onJobFailed, onBuildLog, onBuildStart, onBuildDone]);
 }

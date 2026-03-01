@@ -22,6 +22,7 @@ import Redis from "ioredis";
 import {
   createArtifactQueue,
   createSession,
+  decomposeGoalIntoSubtasks,
   enqueueArtifactGenerationJob,
   generateMistralAssistantResponse,
   generateArchitectureBlueprint,
@@ -48,6 +49,7 @@ import type { AssistantResponse, Mode } from "../../../packages/shared-types/dis
 const {
   artifactDetailSchema,
   artifactIdParamsSchema,
+  buildSubTaskResultSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
   generateArchitectureRequestSchema,
@@ -261,10 +263,16 @@ type CommandResult = {
   output: string;
 };
 
+type StreamingConfig = {
+  publisher: Redis;
+  channel: string;
+  agentLabel: string;
+};
+
 async function runCommand(
   binary: string,
   args: string[],
-  options: { cwd: string; timeoutMs: number }
+  options: { cwd: string; timeoutMs: number; streaming?: StreamingConfig }
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, {
@@ -275,6 +283,19 @@ async function runCommand(
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let stdoutBuffer = "";
+    let stderrBuffer = "";
+
+    const publishLine = (line: string) => {
+      if (options.streaming && line.trim()) {
+        const message = JSON.stringify({
+          type: "build_log",
+          agent: options.streaming.agentLabel,
+          data: line
+        });
+        options.streaming.publisher.publish(options.streaming.channel, message).catch(() => {});
+      }
+    };
 
     const timeoutHandle = setTimeout(() => {
       timedOut = true;
@@ -287,11 +308,25 @@ async function runCommand(
     }, options.timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      stdout += text;
+      stdoutBuffer += text;
+      const lines = stdoutBuffer.split("\n");
+      stdoutBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        publishLine(line);
+      }
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      stderr += text;
+      stderrBuffer += text;
+      const lines = stderrBuffer.split("\n");
+      stderrBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        publishLine(line);
+      }
     });
 
     child.on("error", (error) => {
@@ -301,6 +336,19 @@ async function runCommand(
 
     child.on("close", (exitCode) => {
       clearTimeout(timeoutHandle);
+      // Flush remaining buffer
+      if (stdoutBuffer.trim()) publishLine(stdoutBuffer);
+      if (stderrBuffer.trim()) publishLine(stderrBuffer);
+      // Publish build completion event
+      if (options.streaming) {
+        const doneMessage = JSON.stringify({
+          type: "build_done",
+          agent: options.streaming.agentLabel,
+          exit_code: exitCode,
+          timed_out: timedOut
+        });
+        options.streaming.publisher.publish(options.streaming.channel, doneMessage).catch(() => {});
+      }
       const joined = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n\n");
       const maxLength = 30_000;
       const output = joined.length > maxLength ? joined.slice(-maxLength) : joined;
@@ -450,8 +498,11 @@ async function start(): Promise<void> {
   const redisSubscriber = new Redis(env.redisUrl);
   redisSubscriber.setMaxListeners(0); // Prevent warnings for many connected clients
 
+  // Separate publisher for streaming build logs and events
+  const redisPublisher = new Redis(env.redisUrl);
+
   app.addHook("onClose", async () => {
-    await Promise.allSettled([artifactQueue.close(), db.close(), redisSubscriber.quit()]);
+    await Promise.allSettled([artifactQueue.close(), db.close(), redisSubscriber.quit(), redisPublisher.quit()]);
   });
 
   /**
@@ -872,6 +923,8 @@ async function start(): Promise<void> {
       return reply.status(404).send({ error: "Session not found" });
     }
 
+    const channel = `session:${session.id}`;
+
     const latestAssistant = await db.get<{ content: string }>(
       `SELECT content
        FROM messages
@@ -921,6 +974,108 @@ async function start(): Promise<void> {
       blueprintContext
     ].filter(Boolean);
 
+    const repoRoot = findRepoRoot(process.cwd());
+    const startedAt = Date.now();
+
+    // Publish build_start event
+    const buildStartMsg = JSON.stringify({ type: "build_start", turbo: body.turbo });
+    await redisPublisher.publish(channel, buildStartMsg).catch(() => {});
+
+    // --- TURBO MODE ---
+    if (body.turbo && env.mistralApiKey) {
+      const goal = body.goal?.trim() || "Implement the current architecture plan.";
+
+      let subTasks: string[];
+      try {
+        subTasks = await decomposeGoalIntoSubtasks({
+          apiKey: env.mistralApiKey,
+          model: env.mistralModel,
+          goal,
+          blueprintContext: blueprintContext || undefined,
+          architectureContext: latestArchitecture?.content_md?.slice(0, 3_000),
+          apiUrl: env.mistralApiUrl
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Task decomposition failed";
+        return reply.status(502).send({ error: `Turbo decomposition failed: ${message}` });
+      }
+
+      // Publish decomposition result
+      const decomposeMsg = JSON.stringify({
+        type: "build_log",
+        agent: "Orchestrator",
+        data: `🚀 Turbo mode: decomposed into ${subTasks.length} parallel agents: ${subTasks.map((t, i) => `[Agent ${i + 1}] ${t.slice(0, 60)}`).join(", ")}`
+      });
+      await redisPublisher.publish(channel, decomposeMsg).catch(() => {});
+
+      // Run all sub-tasks in parallel
+      const subTaskPromises = subTasks.map((task, index) => {
+        const agentLabel = `Agent ${index + 1}`;
+        const subPrompt = buildVibePrompt({
+          sessionId: session.id,
+          mode: session.mode,
+          goal: task,
+          context: contextParts.join("\n\n")
+        });
+
+        const subArgs = ["--workdir", repoRoot, "-p", subPrompt, "--max-turns", body.dry_run ? "4" : "10", "--output", "text"];
+        if (body.dry_run) {
+          subArgs.push("--agent", "plan");
+        }
+
+        const subStartedAt = Date.now();
+        return runCommand("vibe", subArgs, {
+          cwd: repoRoot,
+          timeoutMs: body.dry_run ? 45_000 : 120_000,
+          streaming: { publisher: redisPublisher, channel, agentLabel }
+        }).then((result) => ({
+          agent: agentLabel,
+          task,
+          status: (result.timedOut ? "timed_out" : result.exitCode === 0 ? "completed" : "failed") as "completed" | "failed" | "timed_out",
+          exit_code: result.exitCode,
+          output: result.output,
+          duration_ms: Date.now() - subStartedAt
+        })).catch((error) => ({
+          agent: agentLabel,
+          task,
+          status: "failed" as const,
+          exit_code: null,
+          output: error instanceof Error ? error.message : "Unknown error",
+          duration_ms: Date.now() - subStartedAt
+        }));
+      });
+
+      const subResults = await Promise.all(subTaskPromises);
+      const duration = Date.now() - startedAt;
+
+      const allCompleted = subResults.every((r) => r.status === "completed");
+      const anyTimedOut = subResults.some((r) => r.status === "timed_out");
+      const overallStatus = anyTimedOut ? "timed_out" : allCompleted ? "completed" : "failed";
+
+      const combinedOutput = subResults
+        .map((r) => `=== [${r.agent}] ${r.task} (${r.status}) ===\n${r.output}`)
+        .join("\n\n");
+
+      const payload = runBuildResponseSchema.parse({
+        build_id: randomUUID(),
+        status: overallStatus,
+        command: `turbo: ${subTasks.length} parallel vibe agents`,
+        exit_code: allCompleted ? 0 : 1,
+        output: combinedOutput.length > 30_000 ? combinedOutput.slice(-30_000) : combinedOutput,
+        duration_ms: duration,
+        turbo: true,
+        sub_tasks: subResults,
+        notes: [
+          `Turbo mode: ${subTasks.length} agents ran in parallel.`,
+          `Overall status: ${overallStatus}.`,
+          ...subResults.map((r) => `[${r.agent}] ${r.status} in ${(r.duration_ms / 1000).toFixed(1)}s`)
+        ]
+      });
+
+      return reply.status(200).send(payload);
+    }
+
+    // --- BUDGET MODE (default, with streaming) ---
     const prompt = buildVibePrompt({
       sessionId: session.id,
       mode: session.mode,
@@ -928,19 +1083,17 @@ async function start(): Promise<void> {
       context: contextParts.join("\n\n")
     });
 
-    const repoRoot = findRepoRoot(process.cwd());
     const commandArgs = ["--workdir", repoRoot, "-p", prompt, "--max-turns", body.dry_run ? "4" : "10", "--output", "text"];
     if (body.dry_run) {
       commandArgs.push("--agent", "plan");
     }
 
-    const startedAt = Date.now();
-
     let commandResult: CommandResult;
     try {
       commandResult = await runCommand("vibe", commandArgs, {
         cwd: repoRoot,
-        timeoutMs: body.dry_run ? 45_000 : 120_000
+        timeoutMs: body.dry_run ? 45_000 : 120_000,
+        streaming: { publisher: redisPublisher, channel, agentLabel: "Vibe" }
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown Vibe execution error";

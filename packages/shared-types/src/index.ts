@@ -30,7 +30,7 @@ export const roleSchema = z.enum(["user", "assistant", "system"]);
 export const artifactKindSchema = z.enum(["architecture", "tasks", "pitch"]);
 
 // What kind of background job is this?
-export const jobKindSchema = z.enum(["artifact_generation"]);
+export const jobKindSchema = z.enum(["artifact_generation", "code_generation"]);
 
 /**
  * API Request Parameters
@@ -139,7 +139,17 @@ export const synthesizeVoiceResponseSchema = z.object({
 export const runBuildRequestSchema = z.object({
   goal: z.string().trim().min(1).max(1_000).optional(),
   context: z.string().trim().min(1).max(12_000).optional(),
-  dry_run: z.boolean().optional().default(false)
+  dry_run: z.boolean().optional().default(false),
+  turbo: z.boolean().optional().default(false)
+});
+
+export const buildSubTaskResultSchema = z.object({
+  agent: z.string().min(1),
+  task: z.string(),
+  status: z.enum(["completed", "failed", "timed_out"]),
+  exit_code: z.number().int().nullable(),
+  output: z.string(),
+  duration_ms: z.number().int().nonnegative()
 });
 
 export const runBuildResponseSchema = z.object({
@@ -149,7 +159,9 @@ export const runBuildResponseSchema = z.object({
   exit_code: z.number().int().nullable(),
   output: z.string(),
   duration_ms: z.number().int().nonnegative(),
-  notes: z.array(z.string())
+  notes: z.array(z.string()),
+  turbo: z.boolean().optional().default(false),
+  sub_tasks: z.array(buildSubTaskResultSchema).optional()
 });
 
 export const generateArchitectureRequestSchema = z.object({
@@ -217,8 +229,8 @@ export const designSummarySchema = z.object({
   created_at: z.string()
 });
 
-export const queueNameSchema = z.enum(["artifact_generation"]);
-export const artifactJobNameSchema = z.enum(["artifact_generation"]);
+export const queueNameSchema = z.enum(["artifact_generation", "code_generation"]);
+export const artifactJobNameSchema = z.enum(["artifact_generation", "code_generation"]);
 
 // Context needed by the worker to generate a document
 export const artifactGenerationContextSchema = z.object({
@@ -267,6 +279,7 @@ export type SynthesizeVoiceRequest = z.infer<typeof synthesizeVoiceRequestSchema
 export type SynthesizeVoiceResponse = z.infer<typeof synthesizeVoiceResponseSchema>;
 export type RunBuildRequest = z.infer<typeof runBuildRequestSchema>;
 export type RunBuildResponse = z.infer<typeof runBuildResponseSchema>;
+export type BuildSubTaskResult = z.infer<typeof buildSubTaskResultSchema>;
 export type GenerateArchitectureRequest = z.infer<typeof generateArchitectureRequestSchema>;
 export type GenerateArchitectureResponse = z.infer<typeof generateArchitectureResponseSchema>;
 export type QueueName = z.infer<typeof queueNameSchema>;

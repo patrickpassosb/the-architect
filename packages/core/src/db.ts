@@ -129,6 +129,8 @@ export async function openDatabase(databaseUrl: string): Promise<AppDatabase> {
 
   // Optimization: WAL mode allows reading and writing at the same time more efficiently.
   await db.exec("PRAGMA journal_mode = WAL;");
+  // Performance: NORMAL sync is safe with WAL and avoids excessive fsync overhead.
+  await db.exec("PRAGMA synchronous = NORMAL;");
   // Integrity: Ensure that if a session is deleted, we can't have "orphaned" messages.
   await db.exec("PRAGMA foreign_keys = ON;");
 

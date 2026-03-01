@@ -711,7 +711,8 @@ export default function HomePage() {
       const response = await runBuildWithVibe(sessionId, {
         goal: buildGoal.trim() ? buildGoal.trim() : undefined,
         context: contextBlocks.length > 0 ? contextBlocks.join("\n\n") : undefined,
-        dry_run: buildDryRun
+        dry_run: buildDryRun,
+        turbo: false
       });
       setBuildResult(response);
     } catch (error) {
