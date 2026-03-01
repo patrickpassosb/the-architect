@@ -1,4 +1,4 @@
-# Architecture — The Architect (MVP)
+# Architecture - The Architect (MVP)
 
 The Architect is built as a **Monorepo** to ensure tight coupling between the frontend, the backend API, and the background processing logic. This design allows for rapid iteration and ensures that data structures are consistent across all services.
 

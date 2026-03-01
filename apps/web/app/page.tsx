@@ -309,7 +309,7 @@ export default function HomePage() {
         <aside className="sidebar">
           <div className="sidebar-brand">
             <h2 className="brand-title">
-              <span className="brand-icon">⬡</span>
+              <span className="brand-icon">*</span>
               The Architect
             </h2>
             <p className="kicker">AI Co-founder Workspace</p>

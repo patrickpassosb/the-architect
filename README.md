@@ -1,17 +1,17 @@
-# The Architect ⬡
+# The Architect
 
 **Voice-first AI technical cofounder for hackathons and fast product execution.**
 
 ---
 
 ## What it is
-The Architect is a real-time assistant that helps builders go from **Idea → Architecture → Execution Plan → Deliverable Artifacts**.
+The Architect is a real-time assistant that helps builders go from **Idea -> Architecture -> Execution Plan -> Deliverable Artifacts**.
 
 You speak, it responds with:
-- 💡 **Technical Decisions:** Clear, actionable advice on your tech stack and architecture.
-- ⚖️ **Tradeoff Analysis:** Why choosing one tool over another matters for your timeline.
-- 📋 **Implementation Tasks:** A concrete list of steps to start coding immediately.
-- 📄 **Exportable Artifacts:** Auto-generated `ARCHITECTURE.md`, `TASKS.md`, and `PITCH.md`.
+- **Technical Decisions:** Clear, actionable advice on your tech stack and architecture.
+- **Tradeoff Analysis:** Why choosing one tool over another matters for your timeline.
+- **Implementation Tasks:** A concrete list of steps to start coding immediately.
+- **Exportable Artifacts:** Auto-generated `ARCHITECTURE.md`, `TASKS.md`, and `PITCH.md`.
 
 ---
 
@@ -83,7 +83,7 @@ sequenceDiagram
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 - **Frontend:** Next.js 15, React 19, TypeScript, Tailwind CSS, Lucide Icons.
 - **API:** Fastify (Node.js), Zod (Validation).
 - **Worker:** BullMQ (Background Jobs).
@@ -93,7 +93,7 @@ sequenceDiagram
 
 ---
 
-## 📂 Repository Layout
+## Repository Layout
 ```txt
 apps/
   web/      # Next.js Frontend
@@ -107,12 +107,12 @@ infra/
 docs/
   PRD.md           # Product Requirement Document
   ARCHITECTURE.md  # Detailed Technical Architecture
-  path.md          # 🚀 Start here! Guided tour for developers
+  path.md          # Start here! Guided tour for developers
 ```
 
 ---
 
-## 🚀 Quick Start (One Command)
+## Quick Start (One Command)
 
 1. **Install dependencies:**
    ```bash
@@ -136,7 +136,7 @@ docs/
 
 ---
 
-## 🎯 Developer Resources
+## Developer Resources
 - **New to the project?** Read [**path.md**](./path.md) for a guided tour of the code.
 - **Running Tests:** Use `npm run test:integration` to verify the full loop.
 - **Database:** Data is stored in `./data/the-architect.sqlite`.
@@ -144,4 +144,4 @@ docs/
 
 ---
 
-If this repo is used in a hackathon, prioritize: **Shipping, Reliability, and Demo Clarity** over premature complexity. 🚀
+If this repo is used in a hackathon, prioritize: **Shipping, Reliability, and Demo Clarity** over premature complexity.
