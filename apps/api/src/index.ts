@@ -288,12 +288,31 @@ async function runCommand(
 
     const publishLine = (line: string) => {
       if (options.streaming && line.trim()) {
+        let displayData = line;
+        try {
+          // Attempt to extract meaningful content from vibe streaming JSON
+          const parsed = JSON.parse(line);
+          if (parsed.content) {
+            displayData = parsed.content;
+          } else if (parsed.tool_calls && Array.isArray(parsed.tool_calls)) {
+            displayData = `[Tool] ${parsed.tool_calls.map((tc: any) => tc.function?.name || "unnamed").join(", ")}`;
+          } else if (parsed.role === "user") {
+            // Echoing the goal is redundant
+            return;
+          } else if (parsed.role === "assistant" && !parsed.content && !parsed.tool_calls) {
+            // Empty assistant message (e.g. reasoning only) - skip
+            return;
+          }
+        } catch {
+          // raw line
+        }
+
         const message = JSON.stringify({
           type: "build_log",
           agent: options.streaming.agentLabel,
-          data: line
+          data: displayData
         });
-        options.streaming.publisher.publish(options.streaming.channel, message).catch(() => {});
+        options.streaming.publisher.publish(options.streaming.channel, message).catch(() => { });
       }
     };
 
@@ -304,7 +323,7 @@ async function runCommand(
         if (!child.killed) {
           child.kill("SIGKILL");
         }
-      }, 2_000).unref();
+      }, 5_000).unref();
     }, options.timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
@@ -347,7 +366,7 @@ async function runCommand(
           exit_code: exitCode,
           timed_out: timedOut
         });
-        options.streaming.publisher.publish(options.streaming.channel, doneMessage).catch(() => {});
+        options.streaming.publisher.publish(options.streaming.channel, doneMessage).catch(() => { });
       }
       const joined = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n\n");
       const maxLength = 30_000;
@@ -377,7 +396,12 @@ function buildVibePrompt(input: {
     `Mode: ${input.mode}`,
     `Goal: ${goal}`,
     input.context?.trim() ? `Context:\n${input.context.trim()}` : "",
-    "Constraints:",
+    "CRITICAL SECURITY CONSTRAINTS:",
+    "- STAY WITHIN THE REPOSITORY: Do NOT write files, create directories, or run any commands that affect paths outside of the current working directory.",
+    "- NO DESTRUCTIVE ACTIONS: Do NOT run 'rm', 'mv', or other destructive commands on any path outside of the project sub-directories.",
+    "- ENVIRONMENT: You are running in an automated environment (auto-approve). Any hallucination that affects the user's system outside this repo is a critical failure.",
+    "",
+    "Rules:",
     "- Work only inside this repository.",
     "- Keep changes minimal and focused on demo reliability.",
     "- Prefer code that is easy to demo in under 2 minutes.",
@@ -964,22 +988,32 @@ async function start(): Promise<void> {
     }
 
     const contextParts = [
-      body.context?.trim() ?? "",
-      parsedAssistant
-        ? `Latest assistant response:\nSummary: ${parsedAssistant.summary}\nDecision: ${parsedAssistant.decision}\nNext actions: ${parsedAssistant.next_actions.join("; ")}`
-        : "",
+      blueprintContext,
       latestArchitecture?.content_md
         ? `Latest architecture artifact:\n${latestArchitecture.content_md.slice(0, 6_000)}`
         : "",
-      blueprintContext
+      parsedAssistant
+        ? `Latest assistant response:\nSummary: ${parsedAssistant.summary}\nDecision: ${parsedAssistant.decision}\nNext actions: ${parsedAssistant.next_actions.join("; ")}`
+        : "",
+      body.context?.trim() ?? ""
     ].filter(Boolean);
 
     const repoRoot = findRepoRoot(process.cwd());
+    const projectsRoot = path.join(repoRoot, "projects");
+    if (!fs.existsSync(projectsRoot)) {
+      fs.mkdirSync(projectsRoot, { recursive: true });
+    }
+
+    const sessionProjectDir = path.join(projectsRoot, session.id);
+    if (!fs.existsSync(sessionProjectDir)) {
+      fs.mkdirSync(sessionProjectDir, { recursive: true });
+    }
+
     const startedAt = Date.now();
 
     // Publish build_start event
     const buildStartMsg = JSON.stringify({ type: "build_start", turbo: body.turbo });
-    await redisPublisher.publish(channel, buildStartMsg).catch(() => {});
+    await redisPublisher.publish(channel, buildStartMsg).catch(() => { });
 
     // --- TURBO MODE ---
     if (body.turbo && env.mistralApiKey) {
@@ -1006,7 +1040,7 @@ async function start(): Promise<void> {
         agent: "Orchestrator",
         data: `🚀 Turbo mode: decomposed into ${subTasks.length} parallel agents: ${subTasks.map((t, i) => `[Agent ${i + 1}] ${t.slice(0, 60)}`).join(", ")}`
       });
-      await redisPublisher.publish(channel, decomposeMsg).catch(() => {});
+      await redisPublisher.publish(channel, decomposeMsg).catch(() => { });
 
       // Run all sub-tasks in parallel
       const subTaskPromises = subTasks.map((task, index) => {
@@ -1018,15 +1052,17 @@ async function start(): Promise<void> {
           context: contextParts.join("\n\n")
         });
 
-        const subArgs = ["--workdir", repoRoot, "-p", subPrompt, "--max-turns", body.dry_run ? "4" : "10", "--output", "text"];
+        const subArgs = ["--workdir", sessionProjectDir, "-p", subPrompt, "--max-turns", body.dry_run ? "4" : "15", "--output", "streaming"];
         if (body.dry_run) {
           subArgs.push("--agent", "plan");
+        } else {
+          subArgs.push("--agent", "auto-approve");
         }
 
         const subStartedAt = Date.now();
         return runCommand("vibe", subArgs, {
-          cwd: repoRoot,
-          timeoutMs: body.dry_run ? 45_000 : 120_000,
+          cwd: sessionProjectDir,
+          timeoutMs: body.dry_run ? 60_000 : 300_000,
           streaming: { publisher: redisPublisher, channel, agentLabel }
         }).then((result) => ({
           agent: agentLabel,
@@ -1083,16 +1119,18 @@ async function start(): Promise<void> {
       context: contextParts.join("\n\n")
     });
 
-    const commandArgs = ["--workdir", repoRoot, "-p", prompt, "--max-turns", body.dry_run ? "4" : "10", "--output", "text"];
+    const commandArgs = ["--workdir", sessionProjectDir, "-p", prompt, "--max-turns", body.dry_run ? "4" : "15", "--output", "streaming"];
     if (body.dry_run) {
       commandArgs.push("--agent", "plan");
+    } else {
+      commandArgs.push("--agent", "auto-approve");
     }
 
     let commandResult: CommandResult;
     try {
       commandResult = await runCommand("vibe", commandArgs, {
-        cwd: repoRoot,
-        timeoutMs: body.dry_run ? 45_000 : 120_000,
+        cwd: sessionProjectDir,
+        timeoutMs: body.dry_run ? 60_000 : 300_000,
         streaming: { publisher: redisPublisher, channel, agentLabel: "Vibe" }
       });
     } catch (error) {
@@ -1113,15 +1151,31 @@ async function start(): Promise<void> {
         ? "completed"
         : "failed";
 
+    let finalOutput = commandResult.output;
+    try {
+      // Attempt to extract the last assistant message's content from streaming JSON output
+      const lines = commandResult.output.split("\n").filter((l) => l.trim());
+      const lastLine = lines[lines.length - 1];
+      if (lastLine) {
+        const parsed = JSON.parse(lastLine);
+        if (parsed.content) {
+          finalOutput = parsed.content;
+        }
+      }
+    } catch {
+      // Not JSON or failed to parse, use raw output
+    }
+
     const payload = runBuildResponseSchema.parse({
       build_id: randomUUID(),
       status,
-      command: `vibe --workdir ${repoRoot} -p <prompt> --max-turns ${body.dry_run ? "4" : "10"} --output text${body.dry_run ? " --agent plan" : ""}`,
+      command: `vibe --workdir ${sessionProjectDir} -p <prompt> --max-turns ${body.dry_run ? "4" : "15"} --output streaming${body.dry_run ? " --agent plan" : ""}`,
       exit_code: commandResult.exitCode,
-      output: commandResult.output,
+      output: finalOutput,
       duration_ms: duration,
       notes: [
         commandResult.timedOut ? "Execution timed out before completion." : "Execution completed.",
+        `Project workspace: ${sessionProjectDir}`,
         "Output may be truncated to keep response size bounded."
       ]
     });

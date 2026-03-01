@@ -194,6 +194,16 @@ export default function HomePage() {
     onJobFailed: (error) => {
       console.error("Real-time update: Job failed:", error);
       setRequestError(`Background job failed: ${error}`);
+    },
+    onBuildLog: (agent, data) => {
+      setBuildLogs((prev) => [...prev, { agent, data, timestamp: Date.now() }]);
+    },
+    onBuildStart: (turbo) => {
+      setBuildLogs([]);
+      setBuildStartTime(Date.now());
+    },
+    onBuildDone: () => {
+      setBuildLoading(false);
     }
   });
   const [sessionLoading, setSessionLoading] = useState(false);
@@ -236,9 +246,12 @@ export default function HomePage() {
 
   const [buildGoal, setBuildGoal] = useState("");
   const [buildDryRun, setBuildDryRun] = useState(false);
+  const [turboMode, setTurboMode] = useState(false);
   const [buildLoading, setBuildLoading] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [buildResult, setBuildResult] = useState<RunBuildResponse | null>(null);
+  const [buildLogs, setBuildLogs] = useState<Array<{ agent: string; data: string; timestamp: number }>>([]);
+  const [buildStartTime, setBuildStartTime] = useState<number | null>(null);
 
   const latestAssistantMessage = useMemo(() => {
     for (let index = thread.length - 1; index >= 0; index -= 1) {
@@ -712,7 +725,7 @@ export default function HomePage() {
         goal: buildGoal.trim() ? buildGoal.trim() : undefined,
         context: contextBlocks.length > 0 ? contextBlocks.join("\n\n") : undefined,
         dry_run: buildDryRun,
-        turbo: false
+        turbo: turboMode
       });
       setBuildResult(response);
     } catch (error) {
@@ -725,7 +738,8 @@ export default function HomePage() {
     buildDryRun,
     buildGoal,
     latestAssistantMessage,
-    sessionId
+    sessionId,
+    turboMode
   ]);
 
   return (
@@ -1060,15 +1074,26 @@ export default function HomePage() {
               </label>
 
               <div className="row build-controls">
-                <label className="checkbox-line">
-                  <input
-                    type="checkbox"
-                    checked={buildDryRun}
-                    onChange={(event) => setBuildDryRun(event.target.checked)}
-                    disabled={buildLoading}
-                  />
-                  Dry run (plan-only, no edits)
-                </label>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                  <label className="checkbox-line">
+                    <input
+                      type="checkbox"
+                      checked={buildDryRun}
+                      onChange={(event) => setBuildDryRun(event.target.checked)}
+                      disabled={buildLoading}
+                    />
+                    Dry run (plan-only, no edits)
+                  </label>
+                  <label className="checkbox-line" style={{ color: turboMode ? '#63f0d2' : 'inherit' }}>
+                    <input
+                      type="checkbox"
+                      checked={turboMode}
+                      onChange={(event) => setTurboMode(event.target.checked)}
+                      disabled={buildLoading}
+                    />
+                    Turbo Mode (parallel agents)
+                  </label>
+                </div>
                 <button
                   className="button button-accent"
                   onClick={() => void runBuild()}
@@ -1085,6 +1110,28 @@ export default function HomePage() {
                   )}
                 </button>
               </div>
+
+              {buildLogs.length > 0 && (
+                <div className="build-logs panel" style={{ marginTop: '1rem', background: '#0d1117', border: '1px solid #30363d', borderRadius: '6px', maxHeight: '400px', overflow: 'auto' }}>
+                  <div className="row spaced" style={{ padding: '0.5rem', borderBottom: '1px solid #30363d', position: 'sticky', top: 0, background: '#0d1117' }}>
+                    <h3 style={{ fontSize: '0.85rem', color: '#8b949e', margin: 0 }}>Build Logs</h3>
+                    <button
+                      className="button button-ghost"
+                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+                      onClick={() => setBuildLogs([])}
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <div style={{ padding: '0.5rem', fontFamily: 'monospace', fontSize: '0.8rem', lineHeight: 1.5 }}>
+                    {buildLogs.map((log, index) => (
+                      <div key={index} style={{ color: log.agent === 'Vibe' ? '#e6edf3' : log.agent === 'Agent 1' ? '#7ee787' : log.agent === 'Agent 2' ? '#79c0ff' : log.agent === 'Agent 3' ? '#d2a8ff' : log.agent === 'Agent 4' ? '#ffa657' : '#8b949e' }}>
+                        <span style={{ opacity: 0.6 }}>[{log.agent}]</span> {log.data}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {buildResult && (
                 <article className="build-result panel">

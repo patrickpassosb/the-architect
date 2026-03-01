@@ -74,7 +74,7 @@ function applyDagreLayout(
 ): Node[] {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: direction, nodesep: 60, ranksep: 80 });
+  g.setGraph({ rankdir: direction, nodesep: 120, ranksep: 160 });
 
   for (const node of nodes) {
     g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
@@ -160,7 +160,10 @@ function blueprintToEdges(blueprint: BlueprintJson): Edge[] {
     type: "smoothstep",
     animated: true,
     style: { stroke: "rgba(98,183,255,0.5)", strokeWidth: 1.5 },
-    labelStyle: { fill: "#93a6c4", fontSize: 10 },
+    labelStyle: { fill: "#ffffff", fontSize: 11, fontWeight: 500 },
+    labelBgStyle: { fill: "rgba(20,23,31,0.85)", fillOpacity: 1 },
+    labelBgPadding: [6, 4],
+    labelBgBorderRadius: 4,
     markerEnd: { type: MarkerType.ArrowClosed, color: "rgba(98,183,255,0.6)" },
   }));
 }
@@ -259,6 +262,40 @@ export default function ArchitectureCanvas({
 
   return (
     <div style={{ width: "100%", height: "100%", borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }}>
+      <style>{`
+        .react-flow__controls {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          background: #1a1d24 !important;
+          border: 2px solid #62b7ff !important;
+          border-radius: 10px !important;
+          padding: 4px !important;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.8) !important;
+        }
+        .react-flow__controls-button {
+          background: #2a2f3a !important;
+          border: 1px solid #3f444e !important;
+          border-radius: 6px !important;
+          color: #ffffff !important;
+          fill: #ffffff !important;
+          width: 36px !important;
+          height: 36px !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          transition: all 0.2s ease;
+        }
+        .react-flow__controls-button:hover {
+          background: #62b7ff !important;
+          border-color: #ffffff !important;
+        }
+        .react-flow__controls-button svg {
+          fill: #ffffff !important;
+          width: 18px !important;
+          height: 18px !important;
+        }
+      `}</style>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -274,7 +311,6 @@ export default function ArchitectureCanvas({
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255,255,255,0.05)" />
         <Controls
           showInteractive={false}
-          style={{ background: "rgba(20,23,31,0.9)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
         />
         <Panel position="top-right">
           <div style={{ display: "flex", gap: 6 }}>

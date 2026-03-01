@@ -11,6 +11,7 @@ apps/*/.next/
 apps/*/dist/
 packages/*/dist/
 *.tsbuildinfo
+projects/
 
 # Runtime and temporary files
 .tmp/
