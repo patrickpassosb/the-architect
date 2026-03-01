@@ -15,8 +15,10 @@ import {
   type ArtifactDetail,
   type ArtifactListItem,
   type AssistantResponse,
+  type BlueprintJson,
   type Mode,
   type RunBuildResponse,
+  type SavedNodePosition,
   type Source
 } from "@the-architect/shared-types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -35,15 +37,18 @@ import {
 import {
   ApiError,
   createSession,
-  generateArchitectureFromChat,
+  generateBlueprint,
+  getBlueprint,
   getArtifact,
   getArtifacts,
   runBuildWithVibe,
+  saveLayout,
   sendMessage,
   synthesizeVoice
 } from "@/lib/api";
 import { useVoiceTranscript } from "@/hooks/useVoiceTranscript";
 import { useSessionEvents } from "@/hooks/useSessionEvents";
+import ArchitectureCanvas from "@/components/ArchitectureCanvas";
 
 // Default behavior settings
 const DEFAULT_MODE: Mode = "architect";
@@ -218,6 +223,14 @@ export default function HomePage() {
   const [architectureGenerating, setArchitectureGenerating] = useState(false);
   const [showArchitectureMarkdown, setShowArchitectureMarkdown] = useState(false);
 
+  // Blueprint (React Flow) state
+  const [blueprintJson, setBlueprintJson] = useState<BlueprintJson | null>(null);
+  const [blueprintReadme, setBlueprintReadme] = useState<string>("");
+  const [savedPositions, setSavedPositions] = useState<SavedNodePosition[]>([]);
+  const [blueprintGenerating, setBlueprintGenerating] = useState(false);
+  const [blueprintError, setBlueprintError] = useState<string | null>(null);
+  const [layoutSaving, setLayoutSaving] = useState(false);
+
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [speechError, setSpeechError] = useState<string | null>(null);
 
@@ -268,6 +281,17 @@ export default function HomePage() {
     }
   }, [selectedArtifact]);
 
+  const loadBlueprint = useCallback(async (id: string) => {
+    try {
+      const bp = await getBlueprint(id);
+      setBlueprintJson(bp.blueprint_json);
+      setBlueprintReadme(bp.readme_md);
+      setSavedPositions(bp.saved_positions);
+    } catch {
+      // Blueprint not yet generated, that's fine
+    }
+  }, []);
+
   const createNewSession = useCallback(async () => {
     setSessionLoading(true);
     setSessionError(null);
@@ -281,6 +305,10 @@ export default function HomePage() {
       setArchitectureArtifact(null);
       setArchitectureError(null);
       setShowArchitectureMarkdown(false);
+      setBlueprintJson(null);
+      setBlueprintReadme("");
+      setSavedPositions([]);
+      setBlueprintError(null);
       setThread([]);
       setRequestError(null);
       setBuildResult(null);
@@ -328,7 +356,8 @@ export default function HomePage() {
     }
 
     void loadArtifacts(sessionId);
-  }, [loadArtifacts, sessionId]);
+    void loadBlueprint(sessionId);
+  }, [loadArtifacts, loadBlueprint, sessionId]);
 
   /**
    * Effect: Keep the chat scrolled to the bottom.
@@ -579,6 +608,42 @@ export default function HomePage() {
     return JSON.stringify(normalized, null, 2);
   }, [selectedArtifact]);
 
+  const handleGenerateBlueprint = useCallback(async () => {
+    if (!sessionId) {
+      setBlueprintError("No active session");
+      return;
+    }
+
+    setBlueprintGenerating(true);
+    setBlueprintError(null);
+
+    try {
+      const bp = await generateBlueprint(sessionId);
+      setBlueprintJson(bp.blueprint_json);
+      setBlueprintReadme(bp.readme_md);
+      setSavedPositions(bp.saved_positions);
+      // Also refresh artifacts list
+      await loadArtifacts(sessionId);
+    } catch (error) {
+      setBlueprintError(getErrorMessage(error));
+    } finally {
+      setBlueprintGenerating(false);
+    }
+  }, [sessionId, loadArtifacts]);
+
+  const handleSaveLayout = useCallback(async (positions: SavedNodePosition[]) => {
+    if (!sessionId) return;
+    setLayoutSaving(true);
+    try {
+      await saveLayout(sessionId, { positions });
+      setSavedPositions(positions);
+    } catch (error) {
+      setBlueprintError(getErrorMessage(error));
+    } finally {
+      setLayoutSaving(false);
+    }
+  }, [sessionId]);
+
   const generateArchitecture = useCallback(async () => {
     if (!sessionId) {
       setArchitectureError("No active session");
@@ -590,11 +655,8 @@ export default function HomePage() {
     const previousArtifactId = architectureArtifact?.id ?? null;
 
     try {
-      await generateArchitectureFromChat(sessionId, {
-        focus: latestAssistantMessage?.role === "assistant"
-          ? latestAssistantMessage.content.decision
-          : undefined
-      });
+      // Use the blueprint generation endpoint directly
+      await handleGenerateBlueprint();
 
       let refreshed = false;
       for (let attempt = 0; attempt < 15; attempt += 1) {
@@ -621,7 +683,7 @@ export default function HomePage() {
     }
   }, [
     architectureArtifact?.id,
-    latestAssistantMessage,
+    handleGenerateBlueprint,
     loadArtifacts,
     loadLatestArchitecture,
     sessionId
@@ -708,20 +770,9 @@ export default function HomePage() {
         <section className="chat-shell">
           <header className="chat-header" style={{ paddingBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'flex-end' }}>
             <div className="topbar-actions" style={{ display: 'flex', gap: '0.8rem', alignItems: 'center' }}>
-              <label htmlFor="mode-select" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)' }}>
-                Mode:
-                <select
-                  id="mode-select"
-                  value={mode}
-                  onChange={(event) => setMode(event.target.value as Mode)}
-                  disabled={sessionLoading || isSending || buildLoading}
-                  style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', padding: '0.3rem 0.6rem', borderRadius: '8px', fontSize: '0.85rem', outline: 'none' }}
-                >
-                  <option value="architect">Architect</option>
-                  <option value="planner">Planner</option>
-                  <option value="pitch">Pitch</option>
-                </select>
-              </label>
+              <span style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                Mode: <strong style={{ color: '#63f0d2' }}>Architect</strong>
+              </span>
 
               <button
                 className="button button-primary"
@@ -757,9 +808,6 @@ export default function HomePage() {
             </section>
           )}
 
-          {/* Conversation History */}
-          <section className="conversation panel">
-            <div className="message-stack">
           {activePanel === "chat" && (
             <>
               <section className="conversation" style={{ padding: 0, margin: 0, border: 'none', background: 'transparent', boxShadow: 'none' }}>
@@ -935,111 +983,64 @@ export default function HomePage() {
           )}
 
           {activePanel === "architecture" && (
-            <section className="architecture-shell panel">
+            <section style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.75rem", minHeight: 0 }}>
               <div className="row spaced">
-                <h2>Architecture View</h2>
+                <h2>Architecture Canvas</h2>
                 <div className="row architecture-actions">
                   <button
                     className="button button-accent"
-                    onClick={() => void generateArchitecture()}
-                    disabled={!sessionId || architectureGenerating || isSending}
+                    onClick={() => void handleGenerateBlueprint()}
+                    disabled={!sessionId || blueprintGenerating || isSending}
                   >
-                    {architectureGenerating ? "Generating..." : "Generate From Chat"}
+                    {blueprintGenerating ? (
+                      <><Loader2 size={14} className="spin" /> Generating Blueprint...</>
+                    ) : (
+                      blueprintJson ? "Update Blueprint" : "Generate Blueprint"
+                    )}
                   </button>
                   <button
                     className="button"
-                    onClick={() => sessionId && void loadArtifacts(sessionId)}
-                    disabled={!sessionId || architectureLoading || artifactsLoading || architectureGenerating}
+                    onClick={() => sessionId && void loadBlueprint(sessionId)}
+                    disabled={!sessionId || blueprintGenerating}
                   >
-                    {architectureLoading ? "Refreshing..." : "Refresh"}
+                    Refresh
                   </button>
+                  {blueprintReadme && (
+                    <button
+                      className="button button-ghost"
+                      onClick={() => setShowArchitectureMarkdown((c) => !c)}
+                    >
+                      {showArchitectureMarkdown ? "Hide README" : "Show README"}
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {architectureError && <p className="status-inline status-error">{architectureError}</p>}
-
-              {!architectureArtifact && !architectureLoading && (
-                <p className="muted">No architecture artifact available yet. Send a message from the Chat tab first.</p>
+              {(blueprintError || architectureError) && (
+                <p className="status-inline status-error">{blueprintError || architectureError}</p>
               )}
 
-              {architectureArtifact && (
-                <div className="architecture-grid">
-                  <article className="architecture-card panel">
-                    <h3>Diagram</h3>
-                    {architectureDiagramUrl ? (
-                      <img
-                        src={architectureDiagramUrl}
-                        alt="Architecture diagram"
-                        className="architecture-diagram"
-                      />
-                    ) : (
-                      <pre className="architecture-mermaid-fallback">{architectureMermaid ?? "No diagram available."}</pre>
-                    )}
-                  </article>
-
-                  <article className="architecture-card panel">
-                    <h3>Tech Stack</h3>
-                    <ul className="stack-list">
-                      {architectureStack.map((item) => (
-                        <li key={item.key}>
-                          <span>{item.key}</span>
-                          <strong>{item.value}</strong>
-                        </li>
-                      ))}
-                    </ul>
-                  </article>
-
-                  <article className="architecture-card panel architecture-brief">
-                    <h3>Architecture Brief</h3>
-                    <p className="architecture-summary-text">{architectureSummary || "No summary available."}</p>
-                    {architectureDecision && (
-                      <p className="architecture-decision-text">
-                        <strong>Decision:</strong> {architectureDecision}
-                      </p>
-                    )}
-                    {architectureNextActions.length > 0 && (
-                      <ol className="architecture-next-actions">
-                        {architectureNextActions.slice(0, 4).map((action, index) => (
-                          <li key={`${action}-${index}`}>{action}</li>
-                        ))}
-                      </ol>
-                    )}
-                    <button
-                      className="button button-ghost"
-                      onClick={() => setShowArchitectureMarkdown((current) => !current)}
-                    >
-                      {showArchitectureMarkdown ? "Hide Markdown" : "Show Markdown"}
-                    </button>
-                  </article>
-
-                  {showArchitectureMarkdown && (
-                    <article className="architecture-card panel architecture-markdown-scroll">
-                      <h3>Architecture Markdown</h3>
-                      <div className="architecture-markdown-body">
-                        <ReactMarkdown>{architectureArtifact.content_md || "_No architecture markdown available._"}</ReactMarkdown>
-                      </div>
-                    </article>
-                  )}
-
-                  {!showArchitectureMarkdown && (
-                    <article className="architecture-card panel architecture-markdown-hint">
-                      <p className="muted">
-                        Markdown artifact is generated and available. Expand it only when needed to keep this view compact.
-                      </p>
-                    </article>
-                  )}
-
-                  <article className="architecture-card panel architecture-json-snippet">
-                    <h3>Artifact Snapshot</h3>
-                    <pre>{architectureJsonPreview}</pre>
-                  </article>
-                </div>
+              {showArchitectureMarkdown && blueprintReadme && (
+                <article className="panel" style={{ padding: "0.7rem", maxHeight: 240, overflow: "auto" }}>
+                  <div className="architecture-markdown-body">
+                    <ReactMarkdown>{blueprintReadme}</ReactMarkdown>
+                  </div>
+                </article>
               )}
+
+              <div style={{ flex: 1, minHeight: 400 }}>
+                <ArchitectureCanvas
+                  blueprint={blueprintJson}
+                  savedPositions={savedPositions}
+                  onSaveLayout={handleSaveLayout}
+                  saving={layoutSaving}
+                />
+              </div>
             </section>
           )}
 
           {activePanel === "build" && (
-            <section className="build-shell panel">
+            <section className="build-shell panel" style={{ overflow: "auto" }}>
               <div className="row spaced">
                 <h2>Build with Vibe</h2>
                 <span className="muted">Runs Vibe CLI with current session context</span>

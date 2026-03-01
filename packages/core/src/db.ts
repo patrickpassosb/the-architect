@@ -187,6 +187,30 @@ export async function runMigrations(db: AppDatabase): Promise<void> {
     -- Indexes make searching for messages/artifacts by session ID much faster.
     CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_artifacts_session_id ON artifacts(session_id);
+
+    -- Stores saved React Flow node positions for blueprint layout persistence
+    CREATE TABLE IF NOT EXISTS blueprint_layouts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(session_id, node_id)
+    );
+
+    -- Stores incremental design summaries generated every N messages
+    CREATE TABLE IF NOT EXISTS design_summaries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      message_count INTEGER NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_blueprint_layouts_session ON blueprint_layouts(session_id);
+    CREATE INDEX IF NOT EXISTS idx_design_summaries_session ON design_summaries(session_id);
   `);
 
   // Ensure new columns exist for existing databases (backward compatibility)
@@ -347,5 +371,106 @@ export async function upsertJobStatus(
     input.kind,
     input.status,
     input.error ?? null
+  );
+}
+
+/**
+ * Blueprint Layout Persistence
+ */
+export async function saveNodePositions(
+  db: AppDatabase,
+  sessionId: string,
+  positions: Array<{ id: string; x: number; y: number }>
+): Promise<void> {
+  for (const pos of positions) {
+    await db.run(
+      `INSERT INTO blueprint_layouts (session_id, node_id, x, y, updated_at)
+       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(session_id, node_id) DO UPDATE SET
+         x = excluded.x,
+         y = excluded.y,
+         updated_at = CURRENT_TIMESTAMP`,
+      sessionId,
+      pos.id,
+      pos.x,
+      pos.y
+    );
+  }
+}
+
+export async function getSavedNodePositions(
+  db: AppDatabase,
+  sessionId: string
+): Promise<Array<{ id: string; x: number; y: number }>> {
+  const rows = await db.all<Array<{ node_id: string; x: number; y: number }>>(
+    `SELECT node_id, x, y FROM blueprint_layouts WHERE session_id = ? ORDER BY updated_at DESC`,
+    sessionId
+  );
+  return rows.map((row) => ({ id: row.node_id, x: row.x, y: row.y }));
+}
+
+/**
+ * Design Summary Management
+ */
+export type DesignSummaryRecord = {
+  id: number;
+  session_id: string;
+  summary: string;
+  message_count: number;
+  created_at: string;
+};
+
+export async function insertDesignSummary(
+  db: AppDatabase,
+  input: {
+    session_id: string;
+    summary: string;
+    message_count: number;
+  }
+): Promise<void> {
+  await db.run(
+    `INSERT INTO design_summaries (session_id, summary, message_count, created_at)
+     VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+    input.session_id,
+    input.summary,
+    input.message_count
+  );
+}
+
+export async function getLatestDesignSummary(
+  db: AppDatabase,
+  sessionId: string
+): Promise<DesignSummaryRecord | undefined> {
+  return db.get<DesignSummaryRecord>(
+    `SELECT id, session_id, summary, message_count, created_at
+     FROM design_summaries
+     WHERE session_id = ?
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    sessionId
+  );
+}
+
+export async function getSessionMessageCount(
+  db: AppDatabase,
+  sessionId: string
+): Promise<number> {
+  const row = await db.get<{ count: number }>(
+    `SELECT COUNT(*) as count FROM messages WHERE session_id = ?`,
+    sessionId
+  );
+  return row?.count ?? 0;
+}
+
+export async function getAllMessages(
+  db: AppDatabase,
+  sessionId: string
+): Promise<Array<{ role: string; content: string; transcript_source: string; created_at: string }>> {
+  return db.all(
+    `SELECT role, content, transcript_source, created_at
+     FROM messages
+     WHERE session_id = ?
+     ORDER BY created_at ASC`,
+    sessionId
   );
 }

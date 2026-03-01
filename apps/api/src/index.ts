@@ -24,13 +24,22 @@ import {
   createSession,
   enqueueArtifactGenerationJob,
   generateMistralAssistantResponse,
+  generateArchitectureBlueprint,
+  generateDesignSummary,
   getArtifactById,
   getSessionById,
   insertMessage,
   listArtifactsBySession,
   openDatabase,
   runMigrations,
-  upsertJobStatus
+  upsertJobStatus,
+  saveNodePositions,
+  getSavedNodePositions,
+  insertDesignSummary,
+  getLatestDesignSummary,
+  getSessionMessageCount,
+  getAllMessages,
+  insertArtifact
 } from "@the-architect/core";
 import * as sharedTypes from "../../../packages/shared-types/dist/index.js";
 import type { AssistantResponse, Mode } from "../../../packages/shared-types/dist/index.js";
@@ -51,7 +60,10 @@ const {
   sendMessageResponseSchema,
   synthesizeVoiceRequestSchema,
   synthesizeVoiceResponseSchema,
-  sessionIdParamsSchema
+  sessionIdParamsSchema,
+  saveLayoutRequestSchema,
+  saveLayoutResponseSchema,
+  getBlueprintResponseSchema
 } = sharedTypes;
 
 /**
@@ -357,19 +369,63 @@ function summarizeMessageForContext(row: StoredMessageRow): string {
 }
 
 async function buildChatContext(db: Awaited<ReturnType<typeof openDatabase>>, sessionId: string): Promise<string> {
-  const recent = await db.all<StoredMessageRow[]>(
-    `SELECT role, content, transcript_source, created_at
-     FROM messages
-     WHERE session_id = ?
-     ORDER BY created_at DESC
-     LIMIT 12`,
-    sessionId
-  );
-
-  const ordered = recent.reverse();
-  const lines = ordered.map((row) => summarizeMessageForContext(row));
+  // Full history: Fetch ALL messages for the session
+  const allMessages = await getAllMessages(db, sessionId);
+  const lines = allMessages.map((row) => summarizeMessageForContext(row as StoredMessageRow));
   const joined = lines.join("\n");
-  return joined.length > 6_000 ? joined.slice(joined.length - 6_000) : joined;
+  // If context is very large, use latest design summary + recent messages
+  if (joined.length > 12_000) {
+    const summary = await getLatestDesignSummary(db, sessionId);
+    if (summary) {
+      const recentLines = lines.slice(-10);
+      return `[Design Summary]\n${summary.summary}\n\n[Recent Messages]\n${recentLines.join("\n")}`;
+    }
+    // Fallback: take the last 12k characters
+    return joined.slice(joined.length - 12_000);
+  }
+  return joined;
+}
+
+/**
+ * Incremental Summarizer: Generate a design summary every 10 messages.
+ * Runs in the background (fire-and-forget) to avoid blocking the response.
+ */
+async function maybeGenerateDesignSummary(
+  db: Awaited<ReturnType<typeof openDatabase>>,
+  sessionId: string
+): Promise<void> {
+  if (!env.mistralApiKey) return;
+
+  try {
+    const messageCount = await getSessionMessageCount(db, sessionId);
+    const latestSummary = await getLatestDesignSummary(db, sessionId);
+    const lastSummarizedAt = latestSummary?.message_count ?? 0;
+
+    // Generate summary every 10 messages
+    if (messageCount - lastSummarizedAt < 10) return;
+
+    const allMessages = await getAllMessages(db, sessionId);
+    const chatText = allMessages
+      .map((m) => `${m.role}: ${m.content.replace(/\s+/g, " ").trim().slice(0, 300)}`)
+      .join("\n");
+
+    const summaryText = await generateDesignSummary({
+      apiKey: env.mistralApiKey,
+      model: env.mistralModel,
+      chatHistory: chatText.slice(-8_000),
+      previousSummary: latestSummary?.summary,
+      apiUrl: env.mistralApiUrl
+    });
+
+    await insertDesignSummary(db, {
+      session_id: sessionId,
+      summary: summaryText,
+      message_count: messageCount
+    });
+  } catch (error) {
+    // Non-critical: log and continue
+    console.error("Design summary generation failed:", error instanceof Error ? error.message : error);
+  }
 }
 
 async function start(): Promise<void> {
@@ -695,6 +751,9 @@ async function start(): Promise<void> {
       queued_jobs: queuedJobs
     });
 
+    // Fire-and-forget: Check if we need to generate a design summary
+    void maybeGenerateDesignSummary(db, session.id);
+
     return reply.status(200).send(payload);
   });
 
@@ -832,6 +891,25 @@ async function start(): Promise<void> {
     );
 
     const parsedAssistant = latestAssistant ? parseAssistantContent(latestAssistant.content) : null;
+
+    // Fetch the latest blueprint JSON for the build context
+    const latestBlueprintArtifact = await db.get<{ content_json: string }>(
+      `SELECT content_json
+       FROM artifacts
+       WHERE session_id = ? AND kind = 'architecture'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      session.id
+    );
+
+    let blueprintContext = "";
+    if (latestBlueprintArtifact?.content_json) {
+      const blueprintData = parseArtifactJson(latestBlueprintArtifact.content_json);
+      if (blueprintData && typeof blueprintData === "object" && "blueprint_json" in (blueprintData as Record<string, unknown>)) {
+        blueprintContext = `Current React Flow Blueprint (use this as the architecture reference):\n${JSON.stringify((blueprintData as Record<string, unknown>).blueprint_json, null, 2).slice(0, 4_000)}`;
+      }
+    }
+
     const contextParts = [
       body.context?.trim() ?? "",
       parsedAssistant
@@ -839,7 +917,8 @@ async function start(): Promise<void> {
         : "",
       latestArchitecture?.content_md
         ? `Latest architecture artifact:\n${latestArchitecture.content_md.slice(0, 6_000)}`
-        : ""
+        : "",
+      blueprintContext
     ].filter(Boolean);
 
     const prompt = buildVibePrompt({
@@ -938,6 +1017,133 @@ async function start(): Promise<void> {
     });
 
     return reply.status(200).send(payload);
+  });
+
+  /**
+   * Route: Generate Blueprint (Direct Mistral call, bypasses worker for speed)
+   * Generates a React Flow compatible blueprint from chat context.
+   */
+  app.post("/api/sessions/:id/blueprint/generate", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    if (!env.mistralApiKey) {
+      return reply.status(500).send({ error: "MISTRAL_API_KEY is not configured" });
+    }
+
+    const chatContext = await buildChatContext(db, session.id);
+
+    if (!chatContext.trim()) {
+      return reply.status(400).send({ error: "No chat context found. Send a message first." });
+    }
+
+    const designSummary = await getLatestDesignSummary(db, session.id);
+
+    try {
+      const blueprint = await generateArchitectureBlueprint({
+        apiKey: env.mistralApiKey,
+        model: env.mistralModel,
+        chatHistory: chatContext,
+        designSummary: designSummary?.summary,
+        apiUrl: env.mistralApiUrl
+      });
+
+      // Save the blueprint as an artifact for persistence
+      const artifactId = randomUUID();
+      await insertArtifact(db, {
+        id: artifactId,
+        session_id: session.id,
+        kind: "architecture",
+        title: `Blueprint - ${new Date().toISOString().slice(0, 10)}`,
+        content_md: blueprint.readme_md,
+        content_json: JSON.stringify({
+          blueprint_json: blueprint.blueprint_json,
+          generated_at: new Date().toISOString()
+        })
+      });
+
+      return reply.status(200).send({
+        artifact_id: artifactId,
+        readme_md: blueprint.readme_md,
+        blueprint_json: blueprint.blueprint_json
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Blueprint generation failed";
+      app.log.error({ error, sessionId: session.id }, "Blueprint generation failed");
+      return reply.status(502).send({ error: message });
+    }
+  });
+
+  /**
+   * Route: Get Latest Blueprint
+   * Returns the latest blueprint with saved positions.
+   */
+  app.get("/api/sessions/:id/blueprint", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    const latestArchitecture = await db.get<{ id: string; content_md: string; content_json: string }>(
+      `SELECT id, content_md, content_json
+       FROM artifacts
+       WHERE session_id = ? AND kind = 'architecture'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      session.id
+    );
+
+    const savedPositions = await getSavedNodePositions(db, session.id);
+
+    if (!latestArchitecture) {
+      const emptyPayload = getBlueprintResponseSchema.parse({
+        artifact_id: null,
+        readme_md: "",
+        blueprint_json: null,
+        saved_positions: savedPositions
+      });
+      return reply.status(200).send(emptyPayload);
+    }
+
+    const jsonData = parseArtifactJson(latestArchitecture.content_json);
+    let blueprintJson = null;
+    if (jsonData && typeof jsonData === "object" && "blueprint_json" in (jsonData as Record<string, unknown>)) {
+      blueprintJson = (jsonData as Record<string, unknown>).blueprint_json;
+    }
+
+    const bpPayload = getBlueprintResponseSchema.parse({
+      artifact_id: latestArchitecture.id,
+      readme_md: latestArchitecture.content_md,
+      blueprint_json: blueprintJson,
+      saved_positions: savedPositions
+    });
+
+    return reply.status(200).send(bpPayload);
+  });
+
+  /**
+   * Route: Save Layout
+   * Persists the (x, y) positions of React Flow nodes.
+   */
+  app.post("/api/sessions/:id/blueprint/layout", async (request, reply) => {
+    const params = sessionIdParamsSchema.parse(request.params);
+    const body = saveLayoutRequestSchema.parse(request.body);
+    const session = await getSessionById(db, params.id);
+
+    if (!session) {
+      return reply.status(404).send({ error: "Session not found" });
+    }
+
+    await saveNodePositions(db, session.id, body.positions);
+
+    const layoutPayload = saveLayoutResponseSchema.parse({ saved: true });
+    return reply.status(200).send(layoutPayload);
   });
 
   /**

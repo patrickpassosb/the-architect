@@ -161,6 +161,62 @@ export const generateArchitectureResponseSchema = z.object({
   source: z.enum(["latest_assistant", "generated_assistant"])
 });
 
+/**
+ * Blueprint (React Flow) Schemas
+ * Defines the node/edge graph data for the interactive architecture canvas.
+ */
+export const blueprintNodeSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  description: z.string().optional().default(""),
+  icon: z.string().optional().default(""),
+  type: z.string().optional().default("default")
+});
+
+export const blueprintEdgeSchema = z.object({
+  source: z.string().min(1),
+  target: z.string().min(1),
+  label: z.string().optional().default("")
+});
+
+export const blueprintJsonSchema = z.object({
+  nodes: z.array(blueprintNodeSchema),
+  edges: z.array(blueprintEdgeSchema)
+});
+
+export const blueprintResponseSchema = z.object({
+  readme_md: z.string(),
+  blueprint_json: blueprintJsonSchema
+});
+
+export const savedNodePositionSchema = z.object({
+  id: z.string().min(1),
+  x: z.number(),
+  y: z.number()
+});
+
+export const saveLayoutRequestSchema = z.object({
+  positions: z.array(savedNodePositionSchema)
+});
+
+export const saveLayoutResponseSchema = z.object({
+  saved: z.boolean()
+});
+
+export const getBlueprintResponseSchema = z.object({
+  artifact_id: z.string().nullable(),
+  readme_md: z.string(),
+  blueprint_json: blueprintJsonSchema.nullable(),
+  saved_positions: z.array(savedNodePositionSchema)
+});
+
+export const designSummarySchema = z.object({
+  session_id: z.string().min(1),
+  summary: z.string(),
+  message_count: z.number().int().nonnegative(),
+  created_at: z.string()
+});
+
 export const queueNameSchema = z.enum(["artifact_generation"]);
 export const artifactJobNameSchema = z.enum(["artifact_generation"]);
 
@@ -224,3 +280,12 @@ export type ArtifactGenerationSession = z.infer<
 export type ArtifactGenerationJobPayload = z.infer<
   typeof artifactGenerationJobPayloadSchema
 >;
+export type BlueprintNode = z.infer<typeof blueprintNodeSchema>;
+export type BlueprintEdge = z.infer<typeof blueprintEdgeSchema>;
+export type BlueprintJson = z.infer<typeof blueprintJsonSchema>;
+export type BlueprintResponse = z.infer<typeof blueprintResponseSchema>;
+export type SavedNodePosition = z.infer<typeof savedNodePositionSchema>;
+export type SaveLayoutRequest = z.infer<typeof saveLayoutRequestSchema>;
+export type SaveLayoutResponse = z.infer<typeof saveLayoutResponseSchema>;
+export type GetBlueprintResponse = z.infer<typeof getBlueprintResponseSchema>;
+export type DesignSummary = z.infer<typeof designSummarySchema>;

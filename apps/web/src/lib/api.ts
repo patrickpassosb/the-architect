@@ -16,9 +16,12 @@ import {
   createSessionResponseSchema,
   generateArchitectureRequestSchema,
   generateArchitectureResponseSchema,
+  getBlueprintResponseSchema,
   listArtifactsResponseSchema,
   runBuildRequestSchema,
   runBuildResponseSchema,
+  saveLayoutRequestSchema,
+  saveLayoutResponseSchema,
   sendMessageRequestSchema,
   sendMessageResponseSchema,
   synthesizeVoiceRequestSchema,
@@ -29,8 +32,11 @@ import {
   type CreateSessionResponse,
   type GenerateArchitectureRequest,
   type GenerateArchitectureResponse,
+  type GetBlueprintResponse,
   type RunBuildRequest,
   type RunBuildResponse,
+  type SaveLayoutRequest,
+  type SaveLayoutResponse,
   type SendMessageRequest,
   type SendMessageResponse,
   type SynthesizeVoiceRequest,
@@ -221,5 +227,53 @@ export async function generateArchitectureFromChat(
       body: JSON.stringify(parsed)
     },
     generateArchitectureResponseSchema
+  );
+}
+
+/**
+ * API Call: Generate a React Flow blueprint from chat context.
+ */
+export async function generateBlueprint(
+  sessionId: string
+): Promise<GetBlueprintResponse> {
+  // Fire the generation request - this returns quickly
+  await requestJson(
+    `/api/sessions/${sessionId}/blueprint/generate`,
+    { method: "POST", body: JSON.stringify({}) },
+    // The generate endpoint returns a simple object; we use a loose parse
+    getBlueprintResponseSchema.partial()
+  );
+  // Then fetch the full blueprint with positions
+  return getBlueprint(sessionId);
+}
+
+/**
+ * API Call: Get the latest blueprint (React Flow graph + saved positions).
+ */
+export async function getBlueprint(
+  sessionId: string
+): Promise<GetBlueprintResponse> {
+  return requestJson(
+    `/api/sessions/${sessionId}/blueprint`,
+    { method: "GET" },
+    getBlueprintResponseSchema
+  );
+}
+
+/**
+ * API Call: Save React Flow node positions.
+ */
+export async function saveLayout(
+  sessionId: string,
+  payload: SaveLayoutRequest
+): Promise<SaveLayoutResponse> {
+  const parsed = saveLayoutRequestSchema.parse(payload);
+  return requestJson(
+    `/api/sessions/${sessionId}/blueprint/layout`,
+    {
+      method: "POST",
+      body: JSON.stringify(parsed)
+    },
+    saveLayoutResponseSchema
   );
 }
