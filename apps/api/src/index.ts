@@ -14,9 +14,12 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { pipeline } from "node:stream";
+import { promisify } from "node:util";
 import dotenv from "dotenv";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import { FastifySSEPlugin } from "fastify-sse-v2";
 import Redis from "ioredis";
 import {
@@ -43,7 +46,8 @@ import {
   getAllMessages,
   insertArtifact,
   runVibeInSandbox,
-  updateSessionTechStack
+  updateSessionTechStack,
+  transcribeMistralAudio
 } from "@the-architect/core";
 import * as sharedTypes from "@the-architect/shared-types";
 import type { AssistantResponse, Mode } from "@the-architect/shared-types";
@@ -65,6 +69,7 @@ const {
   sendMessageResponseSchema,
   synthesizeVoiceRequestSchema,
   synthesizeVoiceResponseSchema,
+  transcribeVoiceResponseSchema,
   sessionIdParamsSchema,
   saveLayoutRequestSchema,
   saveLayoutResponseSchema,
@@ -557,7 +562,14 @@ async function start(): Promise<void> {
     methods: ["GET", "HEAD", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"]
   });
 
-  // 3. Connect to the background task queue
+  // 3. Enable multipart form data parsing for file uploads
+  await app.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024 // 10MB limit
+    }
+  });
+
+  // 4. Connect to the background task queue
   const artifactQueue = createArtifactQueue(env.redisUrl);
 
   // 4. Graceful Shutdown: Close connections when the server stops
@@ -717,6 +729,73 @@ async function start(): Promise<void> {
     });
 
     return reply.status(200).send(payload);
+  });
+
+  async function convertAudioToMp3(inputBuffer: Buffer): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const inputPath = `/tmp/audio_input_${randomUUID()}.webm`;
+      const outputPath = `/tmp/audio_output_${randomUUID()}.mp3`;
+
+      fs.writeFileSync(inputPath, inputBuffer);
+
+      const ffmpeg = spawn("ffmpeg", [
+        "-i", inputPath,
+        "-acodec", "libmp3lame",
+        "-q:a", "2",
+        "-y",
+        outputPath
+      ]);
+
+      ffmpeg.on("close", (code) => {
+        fs.unlinkSync(inputPath);
+        if (code === 0) {
+          const outputBuffer = fs.readFileSync(outputPath);
+          fs.unlinkSync(outputPath);
+          resolve(outputBuffer);
+        } else {
+          fs.unlinkSync(outputPath);
+          reject(new Error(`ffmpeg conversion failed with code ${code}`));
+        }
+      });
+
+      ffmpeg.on("error", (err) => {
+        fs.unlinkSync(inputPath);
+        reject(err);
+      });
+    });
+  }
+
+  app.post("/api/voice/transcribe", async (request, reply) => {
+    if (!env.mistralApiKey) {
+      return reply.status(500).send({ error: "MISTRAL_API_KEY is not configured" });
+    }
+
+    const data = await request.file();
+    if (!data) {
+      return reply.status(400).send({ error: "No audio file uploaded" });
+    }
+
+    const audioBuffer = await data.toBuffer();
+
+    try {
+      const mp3Buffer = await convertAudioToMp3(audioBuffer);
+
+      const text = await transcribeMistralAudio({
+        apiKey: env.mistralApiKey,
+        audioBuffer: mp3Buffer,
+        fileName: "recording.mp3",
+        mimeType: "audio/mpeg",
+        model: "voxtral-mini-latest",
+        apiUrl: "https://api.mistral.ai/v1/audio/transcriptions"
+      });
+
+      const payload = transcribeVoiceResponseSchema.parse({ text });
+      return reply.status(200).send(payload);
+    } catch (error) {
+      app.log.error({ error }, "Mistral transcription failed");
+      const message = error instanceof Error ? error.message : "Transcription failed";
+      return reply.status(502).send({ error: message });
+    }
   });
 
   app.post("/api/sessions", async (request, reply) => {
@@ -1184,14 +1263,21 @@ async function start(): Promise<void> {
           exit_code: result.exitCode,
           output: result.output,
           duration_ms: Date.now() - subStartedAt
-        })).catch((error) => ({
-          agent: agentLabel,
-          task,
-          status: "failed" as const,
-          exit_code: null,
-          output: error instanceof Error ? error.message : "Unknown error",
-          duration_ms: Date.now() - subStartedAt
-        }));
+        })).catch((error) => {
+          const err = error as Error & { hint?: string };
+          let output = err.message || "Unknown error";
+          if (err.hint) {
+            output += `\n\n💡 ${err.hint}`;
+          }
+          return {
+            agent: agentLabel,
+            task,
+            status: "failed" as const,
+            exit_code: null,
+            output,
+            duration_ms: Date.now() - subStartedAt
+          };
+        });
       });
 
       const subResults = await Promise.all(subTaskPromises);
@@ -1251,13 +1337,21 @@ async function start(): Promise<void> {
         }
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown Vibe execution error";
-      const looksLikeMissingBinary =
-        message.toLowerCase().includes("enoent") || message.toLowerCase().includes("not found");
-      return reply.status(looksLikeMissingBinary ? 501 : 500).send({
-        error: looksLikeMissingBinary
-          ? "Docker or sandbox image is not available. Ensure Docker is running and SANDBOX_DOCKER_IMAGE is set."
-          : message
+      const err = error as Error & { code?: string; hint?: string };
+      const message = err.message || "Unknown Vibe execution error";
+      const errorCode = err.code;
+      const hint = err.hint;
+      
+      const statusCode = errorCode === "docker_not_found" || errorCode === "image_not_found" ? 501 : 500;
+      
+      let userMessage = message;
+      if (hint) {
+        userMessage = `${message}\n\n💡 ${hint}`;
+      }
+      
+      return reply.status(statusCode).send({
+        error: userMessage,
+        code: errorCode
       });
     }
 
