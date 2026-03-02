@@ -79,7 +79,7 @@ Build faster with an AI that thinks like a senior architect. Speak your idea, ge
 - **Tasks** - Implementation checklist with priorities
 - **Pitch** - Investor-ready value proposition
 
-### ⚡ Live Code Execution
+### Live Code Execution
 - **Build with Vibe**: AI writes code in isolated Docker sandbox
 - Turbo mode: Parallel agents for faster execution
 - Dry-run mode: Preview changes before applying
