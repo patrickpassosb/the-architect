@@ -654,3 +654,63 @@ export async function decomposeGoalIntoSubtasks(input: {
     controller.abort();
   }
 }
+
+/**
+ * Transcription Function: Converts audio to text using Mistral's Voxtral model.
+ */
+export async function transcribeMistralAudio(input: {
+  apiKey: string;
+  audioBuffer: Buffer;
+  fileName: string;
+  mimeType?: string;
+  model?: string;
+  apiUrl?: string;
+  timeoutMs?: number;
+}): Promise<string> {
+  const controller = new AbortController();
+  const timeoutMs = input.timeoutMs ?? 30_000;
+  const model = input.model ?? "voxtral-mini-latest";
+  const apiUrl = input.apiUrl ?? "https://api.mistral.ai/v1/audio/transcriptions";
+
+  const formData = new FormData();
+  const mimeType = input.mimeType ?? "audio/webm";
+  const audioBlob = new Blob([new Uint8Array(input.audioBuffer)], { type: mimeType });
+  formData.append("file", audioBlob, input.fileName);
+  formData.append("model", model);
+
+  try {
+    const response = await Promise.race([
+      fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${input.apiKey}`
+          // Note: Do NOT set Content-Type here, fetch will do it with the boundary for FormData
+        },
+        body: formData,
+        signal: controller.signal
+      }),
+      new Promise<Response>((_resolve, reject) => {
+        setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Mistral transcription timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      })
+    ]);
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Mistral Transcription Error ${response.status}: ${errorBody.slice(0, 500)}`);
+    }
+
+    const payload = (await response.json()) as { segments?: Array<{ text: string }> };
+
+    // Concatenate all transcribed segments into a single string
+    if (payload.segments && payload.segments.length > 0) {
+      return payload.segments.map(s => s.text).join(" ").trim();
+    }
+
+    return "";
+  } finally {
+    controller.abort();
+  }
+}

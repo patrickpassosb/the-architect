@@ -1,24 +1,23 @@
 /**
- * @fileoverview Custom React Hook for Voice-to-Text Transcription.
+ * @fileoverview Custom React Hook for Voice-to-Text Transcription using Mistral Voxtral.
  *
- * Problem: We want users to be able to "speak" to the AI. This requires
- * connecting to the browser's Microphone and using a Speech Recognition API.
+ * Problem: The browser's built-in SpeechRecognition is often inaccurate for technical
+ * discussions (e.g., system design).
  *
- * Solution: This hook wraps the standard Web Speech API (SpeechRecognition).
- * It handles starting/stopping the microphone, processing "interim" results
- * (words the AI is still guessing), and "final" results (confirmed words).
+ * Solution: Record the user's voice as high-quality audio using MediaRecorder and
+ * send the resulting blob to our Mistral-powered transcription API.
  */
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { transcribeVoice } from "../lib/api";
 
 // Error categories for better UI messages
 export type VoiceErrorCode =
   | "unsupported"
   | "denied"
   | "capture"
-  | "no-speech"
   | "network"
   | "aborted"
   | "unknown";
@@ -32,80 +31,29 @@ export type VoiceError = {
  * The data structure returned by this hook to the UI component.
  */
 type UseVoiceTranscriptResult = {
-  isSupported: boolean | null; // Does this browser support Speech API?
-  isRecording: boolean;        // Is the microphone currently active?
-  transcript: string;          // Confirmed (final) words
-  interimTranscript: string;   // Guessing (in-progress) words
-  fullTranscript: string;      // Combination of both
-  error: VoiceError | null;    // Any errors that occurred
+  isSupported: boolean | null;  // Does this browser support recording?
+  isRecording: boolean;         // Is the microphone currently active?
+  isTranscribing: boolean;      // Is the API currently processing the audio?
+  transcript: string;           // Final transcribed text from Mistral
+  interimTranscript: string;    // Temporary status (e.g., "Transcribing...")
+  fullTranscript: string;       // Combined view for the UI
+  error: VoiceError | null;     // Any errors that occurred
   startRecording: () => Promise<void>;
   stopRecording: () => void;
   clearTranscript: () => void;
 };
 
 /**
- * Problem: Browser error messages are often technical and confusing.
- * Solution: Map browser errors to user-friendly messages.
- */
-function mapRecognitionError(error: string): VoiceError {
-  switch (error) {
-    case "not-allowed":
-    case "service-not-allowed":
-      return {
-        code: "denied",
-        message: "Microphone permission denied. Allow microphone access and try again."
-      };
-    case "audio-capture":
-      return {
-        code: "capture",
-        message: "No microphone input detected. Check your device and browser mic settings."
-      };
-    case "no-speech":
-      return {
-        code: "no-speech",
-        message: "No speech detected. Try speaking louder or closer to the microphone."
-      };
-    case "network":
-      return {
-        code: "network",
-        message: "Speech recognition network error. Please retry."
-      };
-    case "aborted":
-      return {
-        code: "aborted",
-        message: "Recording stopped before transcription completed."
-      };
-    default:
-      return {
-        code: "unknown",
-        message: "Voice capture failed due to an unknown browser error."
-      };
-  }
-}
-
-/**
- * Helper: Find the correct SpeechRecognition object (handling browser differences).
- */
-function getRecognitionConstructor(): SpeechRecognitionConstructor | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  // Chrome uses webkitSpeechRecognition, others use SpeechRecognition
-  return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
-}
-
-/**
  * The useVoiceTranscript Hook
  */
 export function useVoiceTranscript(): UseVoiceTranscriptResult {
-  // Use a 'ref' to store the SpeechRecognition instance so it persists
-  // without triggering re-renders unless we want them.
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const finalTranscriptRef = useRef("");
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const [isSupported, setIsSupported] = useState<boolean | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [interimTranscript, setInterimTranscript] = useState("");
   const [error, setError] = useState<VoiceError | null>(null);
@@ -114,127 +62,109 @@ export function useVoiceTranscript(): UseVoiceTranscriptResult {
    * Effect: Check for browser support on initial load.
    */
   useEffect(() => {
-    setIsSupported(getRecognitionConstructor() !== null);
+    setIsSupported(typeof window !== "undefined" && !!window.navigator?.mediaDevices?.getUserMedia);
   }, []);
 
   /**
    * Action: Reset the transcript state.
    */
   const clearTranscript = useCallback(() => {
-    finalTranscriptRef.current = "";
     setTranscript("");
     setInterimTranscript("");
+    setError(null);
   }, []);
 
   /**
-   * Action: Activate the microphone and start transcribing.
+   * Action: Activate the microphone and start recording.
    */
   const startRecording = useCallback(async () => {
-    const Recognition = getRecognitionConstructor();
-
-    if (!Recognition) {
-      setError({
-        code: "unsupported",
-        message:
-          "Speech recognition is unavailable in this browser. Use Chromium-based browsers for voice input."
-      });
-      return;
-    }
-
-    if (isRecording) {
-      return;
-    }
+    if (isRecording || isTranscribing) return;
 
     setError(null);
+    audioChunksRef.current = [];
 
-    // Initial check: Does the user even allow microphone access?
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Stop the test stream immediately after checking permission
-      stream.getTracks().forEach((track) => track.stop());
-    } catch {
+      streamRef.current = stream;
+
+      // Prefer high-quality audio formats if available
+      const options = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? { mimeType: "audio/webm;codecs=opus" }
+        : {};
+
+      const recorder = new MediaRecorder(stream, options);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
+        
+        // Final cleanup of the stream
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+        }
+
+        if (audioBlob.size < 100) {
+          // Ignore very short/empty recordings
+          setIsTranscribing(false);
+          setInterimTranscript("");
+          return;
+        }
+
+        // Start transcription phase
+        setIsTranscribing(true);
+        setInterimTranscript("Transcribing with Mistral...");
+
+        try {
+          const result = await transcribeVoice(audioBlob, "recording.webm");
+          setTranscript(result.text);
+          setInterimTranscript("");
+        } catch (err) {
+          console.error("Transcription failed:", err);
+          setError({
+            code: "network",
+            message: err instanceof Error ? err.message : "Mistral transcription failed. Please try again."
+          });
+          setInterimTranscript("");
+        } finally {
+          setIsTranscribing(false);
+        }
+      };
+
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Microphone access failed:", err);
       setError({
         code: "denied",
-        message: "Microphone permission denied. Allow microphone access and try again."
+        message: "Microphone permission denied or unavailable. Please check browser settings."
       });
-      return;
     }
-
-    // Reuse or create the recognition object
-    const recognition = recognitionRef.current ?? new Recognition();
-    recognitionRef.current = recognition;
-
-    // Configure recognition
-    recognition.continuous = true;      // Keep listening until we manually stop
-    recognition.interimResults = true;  // Show "guessing" words in real-time
-    recognition.lang = "en-US";         // Set language to English
-
-    // Define Event Handlers
-    recognition.onstart = () => {
-      setIsRecording(true);
-      setError(null);
-    };
-
-    /**
-     * Event: The browser has processed some speech.
-     * Problem: Results come in pieces (final and interim).
-     * Solution: Loop through all results and combine them correctly.
-     */
-    recognition.onresult = (event) => {
-      let interim = "";
-      let finalValue = finalTranscriptRef.current;
-
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const piece = event.results[index][0]?.transcript ?? "";
-        if (event.results[index].isFinal) {
-          finalValue = `${finalValue} ${piece}`.trim();
-        } else {
-          interim = `${interim} ${piece}`.trim();
-        }
-      }
-
-      // Update state so the UI shows the new text
-      finalTranscriptRef.current = finalValue;
-      setTranscript(finalValue);
-      setInterimTranscript(interim);
-    };
-
-    recognition.onerror = (event) => {
-      setIsRecording(false);
-      setError(mapRecognitionError(event.error));
-    };
-
-    recognition.onend = () => {
-      setIsRecording(false);
-    };
-
-    // Actually start listening!
-    recognition.start();
-  }, [isRecording]);
+  }, [isRecording, isTranscribing]);
 
   /**
-   * Action: Turn off the microphone.
+   * Action: Turn off the microphone and trigger transcription.
    */
   const stopRecording = useCallback(() => {
-    recognitionRef.current?.stop();
-    setIsRecording(false);
-  }, []);
-
-  /**
-   * Computed Value: Combine confirmed and guessing words for the UI.
-   */
-  const fullTranscript = useMemo(() => {
-    if (!interimTranscript) {
-      return transcript;
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
     }
+  }, [isRecording]);
 
-    return `${transcript} ${interimTranscript}`.trim();
-  }, [interimTranscript, transcript]);
+  // Combined transcript for the UI
+  const fullTranscript = interimTranscript || transcript;
 
-  // Return everything the UI component needs
   return {
     isSupported,
     isRecording,
+    isTranscribing,
     transcript,
     interimTranscript,
     fullTranscript,

@@ -181,6 +181,10 @@ export const synthesizeVoiceResponseSchema = z.object({
   audio_base64: z.string().min(1)
 });
 
+export const transcribeVoiceResponseSchema = z.object({
+  text: z.string()
+});
+
 export const runBuildRequestSchema = z.object({
   goal: z.string().trim().min(1).max(1_000).optional(),
   context: z.string().trim().min(1).max(12_000).optional(),
@@ -322,6 +326,7 @@ export type ArtifactListItem = z.infer<typeof artifactListItemSchema>;
 export type ArtifactDetail = z.infer<typeof artifactDetailSchema>;
 export type SynthesizeVoiceRequest = z.infer<typeof synthesizeVoiceRequestSchema>;
 export type SynthesizeVoiceResponse = z.infer<typeof synthesizeVoiceResponseSchema>;
+export type TranscribeVoiceResponse = z.infer<typeof transcribeVoiceResponseSchema>;
 export type RunBuildRequest = z.infer<typeof runBuildRequestSchema>;
 export type RunBuildResponse = z.infer<typeof runBuildResponseSchema>;
 export type BuildSubTaskResult = z.infer<typeof buildSubTaskResultSchema>;

@@ -30,6 +30,7 @@ import {
   updateTechStackResponseSchema,
   getTechStackResponseSchema,
   proposeTechStackResponseSchema,
+  transcribeVoiceResponseSchema,
   type ArtifactDetail,
   type ArtifactListItem,
   type CreateSessionRequest,
@@ -45,6 +46,7 @@ import {
   type SendMessageResponse,
   type SynthesizeVoiceRequest,
   type SynthesizeVoiceResponse,
+  type TranscribeVoiceResponse,
   type TechStack,
   type UpdateTechStackRequest,
   type UpdateTechStackResponse,
@@ -320,4 +322,34 @@ export async function proposeTechStack(
     { method: "POST", body: JSON.stringify({}) },
     proposeTechStackResponseSchema
   );
+}
+
+/**
+ * API Call: Transcribe an audio file using Mistral AI (Voxtral).
+ *
+ * Problem: The browser's built-in speech recognition is inaccurate for technical terms.
+ * Solution: Record the user's voice as an audio file and send it to our Mistral API
+ * for high-fidelity transcription.
+ */
+export async function transcribeVoice(
+  audioBlob: Blob,
+  fileName: string = "transcript.webm"
+): Promise<TranscribeVoiceResponse> {
+  const formData = new FormData();
+  formData.append("file", audioBlob, fileName);
+
+  const response = await fetch(getApiUrl("/api/voice/transcribe"), {
+    method: "POST",
+    body: formData,
+    // Note: Do NOT set Content-Type header for multipart/form-data
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const message = await parseError(response);
+    throw new ApiError(message, response.status);
+  }
+
+  const json = await response.json();
+  return transcribeVoiceResponseSchema.parse(json);
 }

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
+    "@fastify/multipart": "^9.4.0",
     "@the-architect/core": "0.1.0",
     "@the-architect/shared-types": "0.1.0",
     "bullmq": "^5.46.1",

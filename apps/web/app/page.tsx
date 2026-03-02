@@ -41,7 +41,6 @@ import {
   X,
   Plus,
   Trash2,
-  AlertCircle,
   ChevronRight
 } from "lucide-react";
 import {
@@ -1071,10 +1070,17 @@ export default function HomePage() {
 
                 <section className="composer" style={{ padding: '0.75rem 1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', borderRadius: '20px', background: 'rgba(15,20,30,0.6)', border: '1px solid rgba(255,255,255,0.1)' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
-                    {(voice.isRecording || voice.fullTranscript) && (
+                    {(voice.isRecording || voice.isTranscribing || voice.fullTranscript) && (
                       <div style={{ fontSize: '0.85rem', color: '#8fb3df', background: 'rgba(14,25,45,0.6)', padding: '0.5rem 1rem', borderRadius: '8px', marginBottom: '0.5rem', border: '1px solid rgba(123,177,245,0.2)' }}>
                         <span style={{ fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem', marginRight: '0.25rem' }}>Transcript:</span>
-                        {voice.fullTranscript || <span style={{ opacity: 0.5 }}>Listening...</span>}
+                        {voice.isTranscribing ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <Loader2 size={12} className="spin" />
+                            Transcribing with Mistral...
+                          </span>
+                        ) : (
+                          voice.fullTranscript || <span style={{ opacity: 0.5 }}>Listening...</span>
+                        )}
                       </div>
                     )}
 
@@ -1084,7 +1090,7 @@ export default function HomePage() {
                       onChange={(event) => setDraftMessage(event.target.value)}
                       placeholder="Message (↵ to send, Shift+↵ for line breaks...)"
                       rows={1}
-                      disabled={!sessionId || isSending}
+                      disabled={!sessionId || isSending || voice.isTranscribing}
                       style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '0.95rem', resize: 'none', outline: 'none', minHeight: '44px', padding: '0.5rem 0' }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.shiftKey) {
@@ -1107,12 +1113,12 @@ export default function HomePage() {
                             <Square size={14} fill="currentColor" />
                           </button>
                         ) : (
-                          <button style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={() => void voice.startRecording()} disabled={!sessionId || isSending} aria-label="Use Voice">
+                          <button style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} onClick={() => void voice.startRecording()} disabled={!sessionId || isSending || voice.isTranscribing} aria-label="Use Voice">
                             <Mic size={16} />
                           </button>
                         )}
 
-                        {voice.fullTranscript && (
+                        {voice.fullTranscript && !voice.isTranscribing && (
                           <button style={{ background: 'transparent', color: 'rgba(255,255,255,0.5)', border: 'none', fontSize: '0.8rem', cursor: 'pointer' }} onClick={voice.clearTranscript} disabled={isSending}>
                             Clear
                           </button>
@@ -1120,8 +1126,8 @@ export default function HomePage() {
                       </div>
 
                       <button
-                        style={{ background: '#f45e52', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '12px', display: 'flex', gap: '0.4rem', alignItems: 'center', fontWeight: '600', fontSize: '0.9rem', cursor: 'pointer', opacity: (!sessionId || (!draftMessage.trim() && !voice.fullTranscript.trim()) || isSending) ? 0.5 : 1 }}
-                        disabled={!sessionId || (!draftMessage.trim() && !voice.fullTranscript.trim()) || isSending}
+                        style={{ background: '#f45e52', color: '#fff', border: 'none', padding: '0.5rem 1rem', borderRadius: '12px', display: 'flex', gap: '0.4rem', alignItems: 'center', fontWeight: '600', fontSize: '0.9rem', cursor: 'pointer', opacity: (!sessionId || (!draftMessage.trim() && !voice.fullTranscript.trim()) || isSending || voice.isTranscribing) ? 0.5 : 1 }}
+                        disabled={!sessionId || (!draftMessage.trim() && !voice.fullTranscript.trim()) || isSending || voice.isTranscribing}
                         onClick={() => {
                           if (voice.fullTranscript.trim() && !draftMessage.trim()) {
                             void send("voice", voice.fullTranscript);
@@ -1130,8 +1136,8 @@ export default function HomePage() {
                           }
                         }}
                       >
-                        {isSending ? <Loader2 size={14} className="spin" /> : null}
-                        Send
+                        {(isSending || voice.isTranscribing) ? <Loader2 size={14} className="spin" /> : null}
+                        {voice.isTranscribing ? "Processing..." : "Send"}
                       </button>
                     </div>
                   </div>
